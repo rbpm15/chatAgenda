@@ -44,23 +44,62 @@ namespace EmpresaChat
             try
             {
                 _notifyIcon = new System.Windows.Forms.NotifyIcon();
-                _notifyIcon.Icon = System.Drawing.SystemIcons.Information;
-                _notifyIcon.Text = "ChatAgenda";
+
+                // Cargar icono desde archivo
+                try
+                {
+                    string iconPath = System.IO.Path.Combine(
+                        System.AppDomain.CurrentDomain.BaseDirectory, 
+                        "app.ico");
+                    if (System.IO.File.Exists(iconPath))
+                    {
+                        _notifyIcon.Icon = new System.Drawing.Icon(iconPath);
+                    }
+                    else
+                    {
+                        _notifyIcon.Icon = System.Drawing.SystemIcons.Application;
+                    }
+                }
+                catch
+                {
+                    _notifyIcon.Icon = System.Drawing.SystemIcons.Application;
+                }
+
+                _notifyIcon.Text = "ChatAgenda - Mensajes instantáneos";
                 _notifyIcon.Visible = true;
 
                 // Double click restores window
                 _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
 
+                // Click único también restaura
+                _notifyIcon.Click += (s, e) => 
+                {
+                    if (e is System.Windows.Forms.MouseEventArgs me && me.Button == System.Windows.Forms.MouseButtons.Left)
+                    {
+                        RestoreWindow();
+                    }
+                };
+
                 // Context menu
                 var menu = new System.Windows.Forms.ContextMenuStrip();
-                menu.Items.Add("Abrir ChatAgenda", null, (s, e) => RestoreWindow());
-                menu.Items.Add("Salir de la aplicación", null, (s, e) => ExitApplication());
+                menu.Items.Add("📱 Abrir ChatAgenda", null, (s, e) => RestoreWindow());
+                menu.Items.Add("⚙️ Configuración", null, (s, e) => ShowSettings());
+                menu.Items.Add("-"); // Separador
+                menu.Items.Add("❌ Salir de la aplicación", null, (s, e) => ExitApplication());
                 _notifyIcon.ContextMenuStrip = menu;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine("Error initializing system tray: " + ex.Message);
             }
+        }
+
+        private void ShowSettings()
+        {
+            this.Show();
+            this.WindowState = WindowState.Normal;
+            this.Activate();
+            // Podrías aquí abrir una pestaña de configuración específica
         }
 
         private void RestoreWindow()
@@ -191,12 +230,26 @@ namespace EmpresaChat
                     {
                         _navigationFailureCount = 0;
                         StatusText.Text = $"Conectado a: {_serverUrl}";
+
+                        // Inyectar código para inicializar el bridge
+                        try
+                        {
+                            await WebView.CoreWebView2.ExecuteScriptAsync(@"
+                                console.log('[BRIDGE] Inicializando bridge de notificaciones...');
+                                window.notificationBridgeReady = true;
+                                console.log('[BRIDGE] Bridge listo:', !!window.chrome?.webview?.hostObjects?.sync?.chatAgendaBridge);
+                            ");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine("Error inyectando script de bridge: " + ex.Message);
+                        }
                     }
                     else
                     {
                         _navigationFailureCount++;
                         StatusText.Text = "WebView2 no pudo cargar la página (reintentando)...";
-                        
+
                         if (_navigationFailureCount <= MaxNavigationFailures && !string.IsNullOrEmpty(_serverUrl))
                         {
                             await System.Threading.Tasks.Task.Delay(1500);
@@ -249,21 +302,106 @@ namespace EmpresaChat
         {
             try
             {
-                if (_notifyIcon == null)
-                {
-                    return;
-                }
-
                 var safeTitle = string.IsNullOrWhiteSpace(title) ? "ChatAgenda" : title;
                 var safeBody = string.IsNullOrWhiteSpace(body) ? "Tienes un nuevo mensaje." : body;
 
-                _notifyIcon.BalloonTipTitle = safeTitle;
-                _notifyIcon.BalloonTipText = safeBody;
-                _notifyIcon.ShowBalloonTip(4000);
+                // Primera opción: Usar powershell para mostrar notificación toast de Windows 10/11 (funciona incluso con app minimizada)
+                try
+                {
+                    ShowWindowsNotification(safeTitle, safeBody);
+                }
+                catch (Exception notifEx)
+                {
+                    Debug.WriteLine("Error con Windows Notifications Toast: " + notifEx.Message);
+
+                    // Fallback: si Windows Notifications falla, usar NotifyIcon
+                    if (_notifyIcon != null)
+                    {
+                        _notifyIcon.BalloonTipTitle = safeTitle;
+                        _notifyIcon.BalloonTipText = safeBody;
+                        _notifyIcon.ShowBalloonTip(5000);
+                    }
+                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine("Error showing background notification: " + ex.Message);
+            }
+        }
+
+        private void ShowWindowsNotification(string title, string body)
+        {
+            try
+            {
+                // Limpiar caracteres problemáticos para PowerShell
+                var safeTitle = title.Replace("\"", "").Replace("'", "").Replace("`", "");
+                var safeBody = body.Replace("\"", "").Replace("'", "").Replace("`", "");
+
+                // Crear el template XML para la notificación toast INTERACTIVA
+                // La notificación tendrá un botón para abrir la app
+                string xmlTemplate = $@"<toast launch='action=openApp'>
+    <visual>
+        <binding template='ToastText02'>
+            <text id='1'>{System.Security.SecurityElement.Escape(safeTitle)}</text>
+            <text id='2'>{System.Security.SecurityElement.Escape(safeBody)}</text>
+        </binding>
+    </visual>
+    <actions>
+        <action activationType='foreground' arguments='openApp' content='Abrir'/>
+        <action activationType='system' arguments='dismiss' content='Descartar'/>
+    </actions>
+</toast>";
+
+                // Script PowerShell para mostrar notificación
+                string psScript = $@"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] > $null
+
+$APP_ID = 'ChatAgenda'
+
+try {{
+    $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+    $xml.LoadXml('{xmlTemplate.Replace("'", "''").Replace("`", "``")}')
+    $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+    $notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($APP_ID)
+    $notifier.Show($toast)
+}} catch {{
+    Write-Error ""Error: $_""
+}}
+";
+
+                // Ejecutar PowerShell sin ventana visible
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    Arguments = $@"-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""{psScript}""",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+
+                using (var process = Process.Start(psi))
+                {
+                    if (process != null)
+                    {
+                        // Esperar a que termine sin bloquear más de 5 segundos
+                        bool finished = process.WaitForExit(5000);
+                        if (!finished)
+                        {
+                            process.Kill();
+                        }
+                    }
+                }
+
+                Debug.WriteLine($"✓ Notificación Windows mostrada (clickeable): {safeTitle}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("✗ Error al mostrar notificación Windows: " + ex.Message);
+                throw;
             }
         }
 

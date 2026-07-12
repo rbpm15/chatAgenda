@@ -8,3 +8,5 @@ obj/
 *.suo
 Client.WPF/bin/
 Client.WPF/obj/
+
+artifacts/

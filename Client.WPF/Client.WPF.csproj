@@ -9,6 +9,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <RootNamespace>EmpresaChat</RootNamespace>
     <AssemblyName>EmpresaChat</AssemblyName>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <StartupObject>EmpresaChat.App</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>

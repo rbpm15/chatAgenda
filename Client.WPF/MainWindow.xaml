@@ -7,7 +7,8 @@
         mc:Ignorable="d"
         Title="ChatAgenda" Height="720" Width="380"
         WindowStartupLocation="Manual"
-        Background="#f8fafc">
+        Background="#f8fafc"
+        Icon="app.ico">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -92,18 +93,20 @@
                 </StackPanel>
 
                 <!-- Server configuration panel -->
-                <StackPanel x:Name="ServerConfigPanel" Visibility="Collapsed" Margin="0 16 0 0" Background="#ffffff" BorderBrush="#e2e8f0" BorderThickness="1" CornerRadius="12" Padding="14">
-                    <TextBlock Text="Configuración del Servidor" Foreground="#0f172a" FontWeight="SemiBold" FontSize="14" Margin="0 0 8 8"/>
-                    <TextBlock Text="ID de agenda de Google Calendar" Foreground="#64748b" FontSize="12" Margin="0 0 0 4"/>
-                    <TextBox x:Name="ServerCalendarIdInput" Padding="8" Background="#f8fafc" BorderBrush="#cbd5e1" FontSize="13" Margin="0 0 0 8"/>
-                    <CheckBox x:Name="ServerSyncEnabledCheck" Content="Habilitar sincronización con Google Calendar" Foreground="#0f172a" Margin="0 0 0 8"/>
-                    <TextBlock Text="Credenciales JSON de la cuenta de servicio" Foreground="#64748b" FontSize="12" Margin="0 0 0 4"/>
-                    <TextBox x:Name="ServerCredentialsInput" AcceptsReturn="True" Height="90" TextWrapping="Wrap" Padding="8" Background="#f8fafc" BorderBrush="#cbd5e1" FontSize="12" Margin="0 0 0 8"/>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                        <Button Content="Guardar" Click="SaveServerConfig_Click" Padding="12 8" Background="#4f46e5" Foreground="White" BorderThickness="0" Cursor="Hand" Margin="0 0 8 0"/>
-                        <Button Content="Volver" Click="CancelServerConfig_Click" Padding="12 8" Background="#f1f5f9" Foreground="#334155" BorderBrush="#e2e8f0" Cursor="Hand"/>
+                <Border x:Name="ServerConfigPanel" Visibility="Collapsed" Margin="0 16 0 0" Background="#ffffff" BorderBrush="#e2e8f0" BorderThickness="1" CornerRadius="12" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="Configuración del Servidor" Foreground="#0f172a" FontWeight="SemiBold" FontSize="14" Margin="0 0 8 8"/>
+                        <TextBlock Text="ID de agenda de Google Calendar" Foreground="#64748b" FontSize="12" Margin="0 0 0 4"/>
+                        <TextBox x:Name="ServerCalendarIdInput" Padding="8" Background="#f8fafc" BorderBrush="#cbd5e1" FontSize="13" Margin="0 0 0 8"/>
+                        <CheckBox x:Name="ServerSyncEnabledCheck" Content="Habilitar sincronización con Google Calendar" Foreground="#0f172a" Margin="0 0 0 8"/>
+                        <TextBlock Text="Credenciales JSON de la cuenta de servicio" Foreground="#64748b" FontSize="12" Margin="0 0 0 4"/>
+                        <TextBox x:Name="ServerCredentialsInput" AcceptsReturn="True" Height="90" TextWrapping="Wrap" Padding="8" Background="#f8fafc" BorderBrush="#cbd5e1" FontSize="12" Margin="0 0 0 8"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Guardar" Click="SaveServerConfig_Click" Padding="12 8" Background="#4f46e5" Foreground="White" BorderThickness="0" Cursor="Hand" Margin="0 0 8 0"/>
+                            <Button Content="Volver" Click="CancelServerConfig_Click" Padding="12 8" Background="#f1f5f9" Foreground="#334155" BorderBrush="#e2e8f0" Cursor="Hand"/>
+                        </StackPanel>
                     </StackPanel>
-                </StackPanel>
+                </Border>
 
                 <!-- Client IP configuration panel -->
                 <StackPanel x:Name="ClientSetupFields" Visibility="Collapsed" Margin="0 20 0 0">

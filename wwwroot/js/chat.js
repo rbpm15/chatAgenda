@@ -304,11 +304,16 @@ function triggerNotification(msg) {
     const title = msg.groupId ? `${msg.senderDisplayName || 'Alguien'} (Grupo)` : (msg.senderDisplayName || 'Nuevo mensaje');
     const body = msg.text || "📎 Envió un archivo adjunto.";
 
-    // Notificar si la app está en segundo plano (oculta), no tiene el foco del teclado, o es para otro chat
-    if (document.hidden || !document.hasFocus() || !isCurrentChat) {
-        notifyHost(title, body);
+    console.log(`[TRIGGER] document.hidden=${document.hidden}, hasFocus=${document.hasFocus()}, isCurrentChat=${isCurrentChat}, msg=${JSON.stringify(msg)}`);
 
+    // SIEMPRE notificar al host de escritorio, además de las notificaciones web
+    // El host puede decidir si mostrar o no la notificación
+    notifyHost(title, body);
+
+    // Notificación web: solo si la app está en segundo plano o el chat no es el actual
+    if (document.hidden || !document.hasFocus() || !isCurrentChat) {
         if ("Notification" in window && Notification.permission === "granted") {
+            console.log("[TRIGGER] Mostrando Notification web");
             new Notification(title, {
                 body: body,
                 icon: "favicon.ico"
@@ -320,18 +325,32 @@ function triggerNotification(msg) {
 }
 
 function notifyHost(title, body) {
+    console.log(`[NOTIFICACIÓN] Intentando notificar: "${title}" - "${body}"`);
+
+    // Intentar método 1: Host bridge sync
     try {
         const hostBridge = window.chrome?.webview?.hostObjects?.sync?.chatAgendaBridge;
         if (hostBridge && typeof hostBridge.Notify === 'function') {
+            console.log("[NOTIFICACIÓN] Usando método 1: Host bridge sync");
             hostBridge.Notify(title, body);
             return true;
+        } else {
+            console.warn("[NOTIFICACIÓN] Host bridge no disponible", {
+                hasChrome: !!window.chrome,
+                hasWebview: !!window.chrome?.webview,
+                hasHostObjects: !!window.chrome?.webview?.hostObjects,
+                hasSync: !!window.chrome?.webview?.hostObjects?.sync,
+                hasBridge: !!window.chrome?.webview?.hostObjects?.sync?.chatAgendaBridge
+            });
         }
     } catch (err) {
-        console.warn("No se pudo usar el puente de notificaciones del host:", err);
+        console.warn("[NOTIFICACIÓN] Error con host bridge sync:", err.message);
     }
 
+    // Intentar método 2: WebView postMessage
     try {
         if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+            console.log("[NOTIFICACIÓN] Usando método 2: WebView postMessage");
             window.chrome.webview.postMessage({
                 type: 'notification',
                 title: title,
@@ -340,9 +359,23 @@ function notifyHost(title, body) {
             return true;
         }
     } catch (err) {
-        console.warn("No se pudo enviar la notificación al host WebView2:", err);
+        console.warn("[NOTIFICACIÓN] Error con postMessage:", err.message);
     }
 
+    // Intentar método 3: Enviar al servidor (fallback)
+    try {
+        console.log("[NOTIFICACIÓN] Usando método 3: Servidor fallback");
+        fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body })
+        }).catch(e => console.warn("[NOTIFICACIÓN] Error en fallback:", e));
+        return true;
+    } catch (err) {
+        console.warn("[NOTIFICACIÓN] Error con fallback:", err.message);
+    }
+
+    console.warn("[NOTIFICACIÓN] No se pudo notificar por ningún método");
     return false;
 }
 
