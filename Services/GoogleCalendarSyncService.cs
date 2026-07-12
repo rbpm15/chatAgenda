@@ -101,8 +101,10 @@ namespace ChatAgenda.Services
 
         private CalendarService GetCalendarService(string credentialsJson)
         {
-            var credential = CredentialFactory.FromJson<GoogleCredential>(credentialsJson)
+#pragma warning disable CS0618
+            var credential = GoogleCredential.FromJson(credentialsJson)
                 .CreateScoped(CalendarService.Scope.Calendar);
+#pragma warning restore CS0618
 
             return new CalendarService(new BaseClientService.Initializer
             {
@@ -215,6 +217,8 @@ namespace ChatAgenda.Services
                 // Full sync setup (limit range for sanity: 30 days back and 365 days forward)
                 request.TimeMinDateTimeOffset = DateTime.UtcNow.AddDays(-30);
                 request.TimeMaxDateTimeOffset = DateTime.UtcNow.AddDays(365);
+                // Expand recurring events into individual instances ONLY during full sync
+                request.SingleEvents = true;
             }
 
             Events googleEvents;

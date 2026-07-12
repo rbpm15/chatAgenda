@@ -157,27 +157,27 @@
                         <div class="admin-card-header">
                             <h2 class="admin-card-title">🌐 Sincronizador Google Calendar</h2>
                         </div>
-                        <form id="googleSyncForm">
+                        <form id="settingsForm">
                             <div class="form-group">
                                 <label for="syncCalendarId">ID de Agenda (Google Calendar Account)</label>
                                 <input type="text" id="syncCalendarId" value="primary" required>
                             </div>
 
                             <div class="form-group-checkbox">
-                                <input type="checkbox" id="syncIsEnabled" checked>
-                                <label for="syncIsEnabled">Habilitar Sincronización Bidireccional</label>
+                                <input type="checkbox" id="syncEnabled" checked>
+                                <label for="syncEnabled">Habilitar Sincronización Bidireccional</label>
                             </div>
 
                             <div class="form-group">
-                                <label for="syncCredentials">Credenciales de Cuenta de Servicio (JSON)</label>
-                                <textarea id="syncCredentials" rows="6"
+                                <label for="syncCredsJson">Credenciales de Cuenta de Servicio (JSON)</label>
+                                <textarea id="syncCredsJson" rows="6"
                                     placeholder='{ "type": "service_account", "project_id": ... }'></textarea>
-                                <span class="credentials-status" id="credentialsStatus">Cargando estado...</span>
+                                <span class="credentials-status" id="credsStatusLabel">Cargando estado...</span>
                             </div>
 
                             <div class="admin-card-actions">
                                 <button type="submit" class="btn-primary">Guardar Configuración</button>
-                                <button type="button" class="btn-secondary" id="btnForceSync">Forzar Sync</button>
+                                <button type="button" class="btn-secondary" id="btnTriggerSync">🔄 Forzar Sincronización</button>
                             </div>
                         </form>
                     </div>

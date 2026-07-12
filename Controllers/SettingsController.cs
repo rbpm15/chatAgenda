@@ -65,6 +65,7 @@ namespace ChatAgenda.Controllers
                 _context.GoogleSyncStates.Add(syncState);
             }
 
+            bool calendarChanged = syncState.CalendarId != request.CalendarId.Trim();
             syncState.CalendarId = request.CalendarId.Trim();
             syncState.IsEnabled = request.IsEnabled;
 
@@ -82,8 +83,8 @@ namespace ChatAgenda.Controllers
                 }
             }
 
-            // If toggling on, reset sync token to force initial full sync and get updated events
-            if (request.IsEnabled && !syncState.IsEnabled)
+            // Force initial full sync if enabling for the first time OR if the calendar ID changed
+            if ((request.IsEnabled && !syncState.IsEnabled) || calendarChanged)
             {
                 syncState.NextSyncToken = null;
             }
