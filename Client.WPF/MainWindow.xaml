@@ -1,0 +1,110 @@
+<Window x:Class="EmpresaChat.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        mc:Ignorable="d"
+        Title="ChatAgenda" Height="820" Width="420"
+        WindowStartupLocation="Manual"
+        Background="#f8fafc">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 1. TOP HEADER BAR -->
+        <Border Grid.Row="0" Background="#ffffff" BorderBrush="#e2e8f0" BorderThickness="0 0 0 1" Padding="10 8">
+            <DockPanel LastChildFill="True">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                    <!-- Reset / Change Mode Button -->
+                    <Button x:Name="BtnChangeMode" Content="🔄 Cambiar de Modo / IP" Click="BtnChangeMode_Click" Padding="10 5" Background="#f1f5f9" Foreground="#4f46e5" BorderBrush="#e2e8f0" Cursor="Hand"/>
+                </StackPanel>
+                
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="✦ ChatAgenda" FontWeight="Bold" Foreground="#0f172a" FontSize="14" VerticalAlignment="Center" Margin="0 0 15 0"/>
+                    <Border CornerRadius="4" Background="#e0e7ff" BorderThickness="1" BorderBrush="#c7d2fe" Padding="6 2" Margin="0 0 15 0">
+                        <TextBlock x:Name="ModeBadge" Text="Modo: Sin Seleccionar" FontSize="10" Foreground="#4f46e5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBlock x:Name="StatusText" Text="Configura la aplicación para iniciar..." VerticalAlignment="Center" Foreground="#64748b" FontSize="12"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- 2. MAIN EMBEDDED BROWSER -->
+        <wv2:WebView2 Grid.Row="1" x:Name="WebView" Source="about:blank" />
+
+        <!-- 3. MODE SELECTION OVERLAY -->
+        <Grid Grid.Row="0" Grid.RowSpan="2" x:Name="ModeSelectionOverlay" Background="#f8fafc" Panel.ZIndex="1000">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="360">
+                <!-- Header -->
+                <TextBlock Text="ChatAgenda" FontSize="36" FontWeight="Bold" Foreground="#0f172a" HorizontalAlignment="Center" Margin="0 0 0 8"/>
+                <TextBlock Text="Mensajería y Agenda de Oficina LAN" FontSize="13" Foreground="#64748b" HorizontalAlignment="Center" Margin="0 0 0 40"/>
+
+                <!-- Cards list (vertical stack for compact 360 width) -->
+                <StackPanel x:Name="ModeCardsContainer" Orientation="Vertical">
+                    <!-- Server Card -->
+                    <Border Margin="0 0 0 16" CornerRadius="12" BorderThickness="1" Padding="16" Cursor="Hand" MouseLeftButtonDown="SelectServerMode_Click">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#ffffff"/>
+                                <Setter Property="BorderBrush" Value="#e2e8f0"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="BorderBrush" Value="#4f46e5"/>
+                                        <Setter Property="Background" Value="#f1f5f9"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <DockPanel LastChildFill="True">
+                            <TextBlock Text="🖥️" FontSize="32" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0 0 16 0"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Modo Servidor" FontSize="16" FontWeight="Bold" Foreground="#0f172a" Margin="0 0 0 4"/>
+                                <TextBlock Text="Hospeda el chat local y sincroniza con Google Calendar (Agenda Empresa)." FontSize="11" Foreground="#64748b" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- Client Card -->
+                    <Border CornerRadius="12" BorderThickness="1" Padding="16" Cursor="Hand" MouseLeftButtonDown="SelectClientMode_Click">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Background" Value="#ffffff"/>
+                                <Setter Property="BorderBrush" Value="#e2e8f0"/>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="BorderBrush" Value="#4f46e5"/>
+                                        <Setter Property="Background" Value="#f1f5f9"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <DockPanel LastChildFill="True">
+                            <TextBlock Text="💻" FontSize="32" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0 0 16 0"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock Text="Modo Cliente" FontSize="16" FontWeight="Bold" Foreground="#0f172a" Margin="0 0 0 4"/>
+                                <TextBlock Text="Conéctate al chat y agenda que hospeda otra PC en la oficina." FontSize="11" Foreground="#64748b" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- Client IP configuration panel -->
+                <StackPanel x:Name="ClientSetupFields" Visibility="Collapsed" Margin="0 20 0 0">
+                    <TextBlock Text="Dirección IP del Servidor de la Oficina:" Foreground="#64748b" Margin="0 0 0 6" FontSize="12" FontWeight="Medium"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" x:Name="ClientIpInput" Text="http://192.168.1.100:5002" Padding="10" Background="#ffffff" Foreground="#0f172a" BorderBrush="#cbd5e1" FontSize="13" VerticalContentAlignment="Center"/>
+                        <Button Grid.Column="1" Content="Conectar" Click="ConnectAsClient_Click" Padding="14 10" Margin="10 0 0 0" Background="#4f46e5" Foreground="White" FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"/>
+                    </Grid>
+                    <Button Content="◀ Volver" Click="CancelClientSetup_Click" Margin="0 15 0 0" HorizontalAlignment="Left" Background="Transparent" Foreground="#4f46e5" BorderThickness="0" Cursor="Hand" FontSize="12"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,494 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Windows;
+using System.Windows.Input;
+using Microsoft.Win32;
+using MessageBox = System.Windows.MessageBox;
+
+namespace EmpresaChat
+{
+    public partial class MainWindow : Window
+    {
+        private const string ConfigFileName = "server_config.txt";
+        private string _serverUrl = "";
+        private string _mode = ""; // "SERVER" or "CLIENT"
+        private Process _serverProcess = null;
+        private int _navigationFailureCount = 0;
+        private const int MaxNavigationFailures = 3;
+        
+        private System.Windows.Forms.NotifyIcon? _notifyIcon;
+        private bool _isExplicitClose = false;
+
+        public MainWindow()
+        {
+            InitializeComponent();
+            
+            // Posicionar la ventana en el lado derecho de la pantalla
+            this.WindowStartupLocation = WindowStartupLocation.Manual;
+            this.Width = 420;
+            this.Height = 820;
+            this.Left = SystemParameters.WorkArea.Width - this.Width - 15;
+            this.Top = (SystemParameters.WorkArea.Height - this.Height) / 2;
+
+            ModeSelectionOverlay.Visibility = Visibility.Visible;
+            StatusText.Text = "Cargando...";
+
+            Loaded += MainWindow_Loaded;
+            InitializeSystemTray();
+        }
+
+        private void InitializeSystemTray()
+        {
+            try
+            {
+                _notifyIcon = new System.Windows.Forms.NotifyIcon();
+                _notifyIcon.Icon = System.Drawing.SystemIcons.Information;
+                _notifyIcon.Text = "ChatAgenda";
+                _notifyIcon.Visible = true;
+
+                // Double click restores window
+                _notifyIcon.DoubleClick += (s, e) => RestoreWindow();
+
+                // Context menu
+                var menu = new System.Windows.Forms.ContextMenuStrip();
+                menu.Items.Add("Abrir ChatAgenda", null, (s, e) => RestoreWindow());
+                menu.Items.Add("Salir de la aplicación", null, (s, e) => ExitApplication());
+                _notifyIcon.ContextMenuStrip = menu;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error initializing system tray: " + ex.Message);
+            }
+        }
+
+        private void RestoreWindow()
+        {
+            this.Show();
+            this.WindowState = WindowState.Normal;
+            this.Activate();
+        }
+
+        private void ExitApplication()
+        {
+            _isExplicitClose = true;
+            this.Close();
+        }
+
+        private void SetAutoStart(bool enable)
+        {
+            try
+            {
+                using (RegistryKey rk = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", true))
+                {
+                    if (rk != null)
+                    {
+                        string appName = "ChatAgenda";
+                        if (enable)
+                        {
+                            string path = Process.GetCurrentProcess().MainModule?.FileName ?? "";
+                            if (!string.IsNullOrEmpty(path))
+                            {
+                                rk.SetValue(appName, $"\"{path}\"");
+                            }
+                        }
+                        else
+                        {
+                            rk.DeleteValue(appName, false);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error setting registry auto-start: " + ex.Message);
+            }
+        }
+
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ModeSelectionOverlay.Visibility = Visibility.Visible;
+                StatusText.Text = "Inicializando la interfaz...";
+
+                // Initialize WebView2 environment
+                await WebView.EnsureCoreWebView2Async(null);
+
+                // Auto-approve Notification Permission request
+                WebView.CoreWebView2.PermissionRequested += (s, args) =>
+                {
+                    if (args.PermissionKind == Microsoft.Web.WebView2.Core.CoreWebView2PermissionKind.Notifications)
+                    {
+                        args.State = Microsoft.Web.WebView2.Core.CoreWebView2PermissionState.Allow;
+                        args.Handled = true;
+                    }
+                };
+
+                WebView.CoreWebView2.WebMessageReceived += (s, args) =>
+                {
+                    try
+                    {
+                        var message = System.Text.Json.JsonSerializer.Deserialize<WebViewMessage>(args.TryGetWebMessageAsString());
+                        if (message != null && message.Type == "notification")
+                        {
+                            _notifyIcon?.ShowBalloonTip(3000, message.Title, message.Body, System.Windows.Forms.ToolTipIcon.Info);
+                        }
+                    }
+                    catch { }
+                };
+
+                // Load saved configuration
+                if (LoadConfig())
+                {
+                    if (Uri.TryCreate(_serverUrl, UriKind.Absolute, out var savedUri))
+                    {
+                        // Auto-start with stored config
+                        ModeSelectionOverlay.Visibility = Visibility.Collapsed;
+                        WebView.Visibility = Visibility.Visible;
+
+                        if (_mode == "SERVER")
+                        {
+                            ModeBadge.Text = "Modo: Servidor";
+                            StatusText.Text = "Iniciando servidor local...";
+                            StartLocalServer();
+                        }
+                        else
+                        {
+                            ModeBadge.Text = "Modo: Cliente LAN";
+                            StatusText.Text = $"Conectando a servidor remoto {_serverUrl}...";
+                        }
+
+                        WebView.Source = savedUri;
+                    }
+                    else
+                    {
+                        ModeSelectionOverlay.Visibility = Visibility.Visible;
+                        WebView.Visibility = Visibility.Collapsed;
+                        StatusText.Text = "Dirección de servidor inválida. Configura la aplicación.";
+                    }
+                }
+                else
+                {
+                    // No config, prompt user
+                    ModeSelectionOverlay.Visibility = Visibility.Visible;
+                    WebView.Visibility = Visibility.Collapsed;
+                }
+
+                // Listen to navigation events
+                WebView.CoreWebView2.NavigationCompleted += async (s, args) =>
+                {
+                    if (args.IsSuccess)
+                    {
+                        _navigationFailureCount = 0;
+                        StatusText.Text = $"Conectado a: {_serverUrl}";
+                    }
+                    else
+                    {
+                        _navigationFailureCount++;
+                        StatusText.Text = "WebView2 no pudo cargar la página (reintentando)...";
+                        
+                        if (_navigationFailureCount <= MaxNavigationFailures && !string.IsNullOrEmpty(_serverUrl))
+                        {
+                            await System.Threading.Tasks.Task.Delay(1500);
+                            try
+                            {
+                                WebView.CoreWebView2.Navigate(_serverUrl);
+                            }
+                            catch { }
+                        }
+                        else
+                        {
+                            var errorMessage = $"No se pudo cargar la página en {_serverUrl}.\nComprueba que la aplicación del servidor está en ejecución y que WebView2 Runtime está instalado.";
+                            if (args.WebErrorStatus != Microsoft.Web.WebView2.Core.CoreWebView2WebErrorStatus.Unknown)
+                            {
+                                errorMessage += $"\nError WebView2: {args.WebErrorStatus}";
+                            }
+
+                            MessageBox.Show(errorMessage, "Error de Navegación", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            StatusText.Text = "WebView2 no pudo mostrar la página.";
+
+                            if (!string.IsNullOrEmpty(_serverUrl) && _mode == "CLIENT")
+                            {
+                                try
+                                {
+                                    Process.Start(new ProcessStartInfo(_serverUrl) { UseShellExecute = true });
+                                    StatusText.Text = "Abriendo en el navegador predeterminado...";
+                                }
+                                catch (Exception ex)
+                                {
+                                    Debug.WriteLine($"No se pudo abrir el navegador: {ex.Message}");
+                                }
+                            }
+
+                            ModeSelectionOverlay.Visibility = Visibility.Collapsed;
+                            WebView.Source = new Uri("about:blank");
+                        }
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                WebView.Visibility = Visibility.Collapsed;
+                StatusText.Text = "WebView2 no está disponible. Usa la interfaz básica para configurar la app.";
+                ModeSelectionOverlay.Visibility = Visibility.Visible;
+                MessageBox.Show($"Error al inicializar el navegador local:\n{ex.Message}\n\nAsegúrate de tener instalado WebView2 Runtime.", "Error de Inicialización", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private class WebViewMessage
+        {
+            public string Type { get; set; } = string.Empty;
+            public string Title { get; set; } = string.Empty;
+            public string Body { get; set; } = string.Empty;
+        }
+
+        private bool LoadConfig()
+        {
+            try
+            {
+                if (File.Exists(ConfigFileName))
+                {
+                    string[] lines = File.ReadAllLines(ConfigFileName);
+                    foreach (var line in lines)
+                    {
+                        if (line.StartsWith("MODE="))
+                        {
+                            _mode = line.Substring(5).Trim().ToUpper();
+                        }
+                        else if (line.StartsWith("URL="))
+                        {
+                            _serverUrl = line.Substring(4).Trim();
+                        }
+                    }
+
+                    return !string.IsNullOrEmpty(_mode) && !string.IsNullOrEmpty(_serverUrl);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error reading config: " + ex.Message);
+            }
+            return false;
+        }
+
+        private void SaveConfig(string mode, string url)
+        {
+            try
+            {
+                _mode = mode;
+                _serverUrl = url;
+                File.WriteAllLines(ConfigFileName, new[] {
+                    $"MODE={mode}",
+                    $"URL={url}"
+                });
+                SetAutoStart(true); // Configura auto-inicio con Windows
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"No se pudo guardar la configuración: {ex.Message}", "Advertencia", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void StartLocalServer()
+        {
+            try
+            {
+                string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                string exeName = "chatAgenda.exe";
+                string dllName = "chatAgenda.dll";
+
+                ProcessStartInfo psi = new ProcessStartInfo();
+
+                // 1. Look in the same folder as the WPF executable
+                if (File.Exists(Path.Combine(baseDir, exeName)))
+                {
+                    psi.FileName = Path.Combine(baseDir, exeName);
+                    psi.WorkingDirectory = baseDir;
+                }
+                else if (File.Exists(Path.Combine(baseDir, dllName)))
+                {
+                    psi.FileName = "dotnet";
+                    psi.Arguments = $"\"{Path.Combine(baseDir, dllName)}\"";
+                    psi.WorkingDirectory = baseDir;
+                }
+                else
+                {
+                    // 2. Look in workspace directories (relative paths for dev)
+                    // Traverse upwards to find the directory containing chatAgenda.csproj
+                    string? currentDir = baseDir;
+                    string? workspaceRoot = null;
+                    while (currentDir != null)
+                    {
+                        if (File.Exists(Path.Combine(currentDir, "chatAgenda.csproj")))
+                        {
+                            workspaceRoot = currentDir;
+                            break;
+                        }
+                        currentDir = Path.GetDirectoryName(currentDir);
+                    }
+
+                    if (workspaceRoot != null)
+                    {
+                        string debugDll = Path.Combine(workspaceRoot, "bin", "Debug", "net8.0", "chatAgenda.dll");
+                        string releaseDll = Path.Combine(workspaceRoot, "bin", "Release", "net8.0", "chatAgenda.dll");
+
+                        if (File.Exists(debugDll))
+                        {
+                            psi.FileName = "dotnet";
+                            psi.Arguments = $"\"{debugDll}\"";
+                            psi.WorkingDirectory = workspaceRoot;
+                        }
+                        else if (File.Exists(releaseDll))
+                        {
+                            psi.FileName = "dotnet";
+                            psi.Arguments = $"\"{releaseDll}\"";
+                            psi.WorkingDirectory = workspaceRoot;
+                        }
+                        else
+                        {
+                            string projFile = Path.Combine(workspaceRoot, "chatAgenda.csproj");
+                            psi.FileName = "dotnet";
+                            psi.Arguments = $"run --project \"{projFile}\" --launch-profile http";
+                            psi.WorkingDirectory = workspaceRoot;
+                        }
+                    }
+                    else
+                    {
+                        throw new FileNotFoundException("No se encontró el ejecutable ni el código fuente de ChatAgenda.");
+                    }
+                }
+
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+
+                _serverProcess = Process.Start(psi);
+                StatusText.Text = "Servidor local iniciado en segundo plano.";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al iniciar el servidor local:\n{ex.Message}\n\nSe intentará conectar a http://localhost:5002.", "Error del Servidor", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private void StopLocalServer()
+        {
+            try
+            {
+                if (_serverProcess != null && !_serverProcess.HasExited)
+                {
+                    _serverProcess.Kill(true);
+                    _serverProcess = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error killing server process: " + ex.Message);
+            }
+        }
+
+        private void SelectServerMode_Click(object sender, MouseButtonEventArgs e)
+        {
+            _serverUrl = "http://localhost:5002";
+            SaveConfig("SERVER", _serverUrl);
+            ModeSelectionOverlay.Visibility = Visibility.Collapsed;
+            ModeBadge.Text = "Modo: Servidor";
+            StatusText.Text = "Iniciando servidor local...";
+            StartLocalServer();
+            WebView.Source = new Uri(_serverUrl);
+        }
+
+        private void SelectClientMode_Click(object sender, RoutedEventArgs e)
+        {
+            ModeCardsContainer.Visibility = Visibility.Collapsed;
+            ClientSetupFields.Visibility = Visibility.Visible;
+        }
+
+        private void CancelClientSetup_Click(object sender, RoutedEventArgs e)
+        {
+            ClientSetupFields.Visibility = Visibility.Collapsed;
+            ModeCardsContainer.Visibility = Visibility.Visible;
+        }
+
+        private void ConnectAsClient_Click(object sender, RoutedEventArgs e)
+        {
+            string newUrl = ClientIpInput.Text.Trim();
+            if (!newUrl.StartsWith("http://") && !newUrl.StartsWith("https://"))
+            {
+                newUrl = "http://" + newUrl;
+            }
+
+            if (Uri.TryCreate(newUrl, UriKind.Absolute, out var uri))
+            {
+                _serverUrl = newUrl;
+                SaveConfig("CLIENT", _serverUrl);
+                ModeSelectionOverlay.Visibility = Visibility.Collapsed;
+                ModeBadge.Text = "Modo: Cliente LAN";
+                StatusText.Text = $"Conectando a {_serverUrl}...";
+                WebView.Visibility = Visibility.Visible;
+
+                if (WebView.CoreWebView2 != null)
+                {
+                    WebView.CoreWebView2.Navigate(_serverUrl);
+                }
+                else
+                {
+                    WebView.Source = uri;
+                }
+            }
+            else
+            {
+                MessageBox.Show("Por favor ingresa una dirección IP válida (ej: 192.168.1.150:5002)", "Dirección Inválida", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void BtnChangeMode_Click(object sender, RoutedEventArgs e)
+        {
+            // Reset state
+            StopLocalServer();
+            SetAutoStart(false); // Quita auto-inicio al restablecer
+            
+            try
+            {
+                if (File.Exists(ConfigFileName))
+                {
+                    File.Delete(ConfigFileName);
+                }
+            }
+            catch { }
+
+            _mode = "";
+            _serverUrl = "";
+
+            WebView.Source = new Uri("about:blank");
+            ModeBadge.Text = "Modo: Sin Seleccionar";
+            StatusText.Text = "Configura la aplicación para iniciar...";
+            
+            // Show overlay resetting controls
+            ClientSetupFields.Visibility = Visibility.Collapsed;
+            ModeCardsContainer.Visibility = Visibility.Visible;
+            ModeSelectionOverlay.Visibility = Visibility.Visible;
+        }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            if (!_isExplicitClose)
+            {
+                e.Cancel = true;
+                this.WindowState = WindowState.Minimized;
+                this.Hide(); // Ocultar en la bandeja del sistema
+                _notifyIcon?.ShowBalloonTip(2000, "ChatAgenda", "La aplicación sigue ejecutándose en segundo plano.", System.Windows.Forms.ToolTipIcon.Info);
+            }
+            else
+            {
+                if (_notifyIcon != null)
+                {
+                    _notifyIcon.Visible = false;
+                    _notifyIcon.Dispose();
+                }
+                StopLocalServer();
+                base.OnClosing(e);
+            }
+        }
+    }
+}
