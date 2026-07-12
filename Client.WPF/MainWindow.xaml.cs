@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
@@ -125,17 +126,25 @@ namespace EmpresaChat
                     }
                 };
 
+                WebView.CoreWebView2.Settings.IsWebMessageEnabled = true;
+                WebView.CoreWebView2.AddHostObjectToScript("chatAgendaBridge", new ScriptBridge(this));
+
                 WebView.CoreWebView2.WebMessageReceived += (s, args) =>
                 {
                     try
                     {
-                        var message = System.Text.Json.JsonSerializer.Deserialize<WebViewMessage>(args.TryGetWebMessageAsString());
-                        if (message != null && message.Type == "notification")
+                        var message = System.Text.Json.JsonSerializer.Deserialize<WebViewMessage>(
+                            args.TryGetWebMessageAsString(),
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (message != null && string.Equals(message.Type, "notification", StringComparison.OrdinalIgnoreCase))
                         {
-                            _notifyIcon?.ShowBalloonTip(3000, message.Title, message.Body, System.Windows.Forms.ToolTipIcon.Info);
+                            ShowBackgroundNotification(message.Title, message.Body);
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine("Error processing web notification: " + ex.Message);
+                    }
                 };
 
                 // Load saved configuration
@@ -236,11 +245,55 @@ namespace EmpresaChat
             }
         }
 
+        private void ShowBackgroundNotification(string title, string body)
+        {
+            try
+            {
+                if (_notifyIcon == null)
+                {
+                    return;
+                }
+
+                var safeTitle = string.IsNullOrWhiteSpace(title) ? "ChatAgenda" : title;
+                var safeBody = string.IsNullOrWhiteSpace(body) ? "Tienes un nuevo mensaje." : body;
+
+                _notifyIcon.BalloonTipTitle = safeTitle;
+                _notifyIcon.BalloonTipText = safeBody;
+                _notifyIcon.ShowBalloonTip(4000);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Error showing background notification: " + ex.Message);
+            }
+        }
+
+        [ComVisible(true)]
+        public class ScriptBridge
+        {
+            private readonly MainWindow _owner;
+
+            public ScriptBridge(MainWindow owner)
+            {
+                _owner = owner;
+            }
+
+            public void Notify(string title, string body)
+            {
+                _owner.Dispatcher.Invoke(() => _owner.ShowBackgroundNotification(title, body));
+            }
+        }
+
         private class WebViewMessage
         {
             public string Type { get; set; } = string.Empty;
             public string Title { get; set; } = string.Empty;
             public string Body { get; set; } = string.Empty;
+        }
+
+        private class ServerSettings
+        {
+            public string? CalendarId { get; set; }
+            public bool IsEnabled { get; set; }
         }
 
         private bool LoadConfig()
@@ -396,10 +449,15 @@ namespace EmpresaChat
             StatusText.Text = "Iniciando servidor local...";
             StartLocalServer();
             WebView.Source = new Uri(_serverUrl);
+            ServerConfigPanel.Visibility = Visibility.Visible;
+            ModeCardsContainer.Visibility = Visibility.Collapsed;
+            ClientSetupFields.Visibility = Visibility.Collapsed;
+            LoadServerConfigIntoForm();
         }
 
         private void SelectClientMode_Click(object sender, RoutedEventArgs e)
         {
+            ServerConfigPanel.Visibility = Visibility.Collapsed;
             ModeCardsContainer.Visibility = Visibility.Collapsed;
             ClientSetupFields.Visibility = Visibility.Visible;
         }
@@ -407,7 +465,70 @@ namespace EmpresaChat
         private void CancelClientSetup_Click(object sender, RoutedEventArgs e)
         {
             ClientSetupFields.Visibility = Visibility.Collapsed;
+            ServerConfigPanel.Visibility = Visibility.Collapsed;
             ModeCardsContainer.Visibility = Visibility.Visible;
+        }
+
+        private void CancelServerConfig_Click(object sender, RoutedEventArgs e)
+        {
+            ServerConfigPanel.Visibility = Visibility.Collapsed;
+            ModeCardsContainer.Visibility = Visibility.Visible;
+        }
+
+        private async void SaveServerConfig_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                using var client = new System.Net.Http.HttpClient();
+                var payload = new
+                {
+                    calendarId = ServerCalendarIdInput.Text.Trim(),
+                    isEnabled = ServerSyncEnabledCheck.IsChecked == true,
+                    credentialsJson = string.IsNullOrWhiteSpace(ServerCredentialsInput.Text) ? null : ServerCredentialsInput.Text.Trim()
+                };
+
+                var json = System.Text.Json.JsonSerializer.Serialize(payload);
+                var content = new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json");
+                var response = await client.PostAsync("http://localhost:5002/api/settings", content);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    MessageBox.Show("Configuración guardada correctamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+                else
+                {
+                    var errorText = await response.Content.ReadAsStringAsync();
+                    MessageBox.Show($"No se pudo guardar la configuración: {errorText}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al conectar con el servidor: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
+        private async void LoadServerConfigIntoForm()
+        {
+            try
+            {
+                using var client = new System.Net.Http.HttpClient();
+                var response = await client.GetAsync("http://localhost:5002/api/settings");
+                if (response.IsSuccessStatusCode)
+                {
+                    var json = await response.Content.ReadAsStringAsync();
+                    var settings = System.Text.Json.JsonSerializer.Deserialize<ServerSettings>(json, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                    if (settings != null)
+                    {
+                        ServerCalendarIdInput.Text = settings.CalendarId ?? "primary";
+                        ServerSyncEnabledCheck.IsChecked = settings.IsEnabled;
+                    }
+                }
+            }
+            catch
+            {
+                ServerCalendarIdInput.Text = "primary";
+                ServerSyncEnabledCheck.IsChecked = false;
+            }
         }
 
         private void ConnectAsClient_Click(object sender, RoutedEventArgs e)

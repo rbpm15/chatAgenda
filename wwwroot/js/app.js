@@ -12,9 +12,16 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 async function initApp() {
-    // Solicitar permisos de notificación en el SO
-    if ("Notification" in window && Notification.permission !== "granted" && Notification.permission !== "denied") {
-        Notification.requestPermission();
+    // Solicitar permisos de notificación en el SO si el navegador lo soporta
+    try {
+        if (typeof window.Notification !== "undefined" && typeof window.Notification.requestPermission === "function") {
+            const permission = window.Notification.permission;
+            if (permission !== "granted" && permission !== "denied") {
+                window.Notification.requestPermission().catch(() => {});
+            }
+        }
+    } catch (err) {
+        console.warn("No se pudieron solicitar permisos de notificación:", err);
     }
 
     // 1. Verify Authentication (IP-based auto-login)

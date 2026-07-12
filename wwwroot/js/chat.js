@@ -290,7 +290,7 @@ function handleReceivedMessage(msg) {
 }
 
 function triggerNotification(msg) {
-    if (!currentUser || msg.senderId === currentUser.id) return;
+    if (!currentUser || !msg || msg.senderId === currentUser.id) return;
 
     let isCurrentChat = false;
     if (activeChat) {
@@ -301,18 +301,12 @@ function triggerNotification(msg) {
         isCurrentChat = matchesDirect || matchesGroup;
     }
 
-    const title = msg.groupId ? `${msg.senderDisplayName} (Grupo)` : msg.senderDisplayName;
+    const title = msg.groupId ? `${msg.senderDisplayName || 'Alguien'} (Grupo)` : (msg.senderDisplayName || 'Nuevo mensaje');
     const body = msg.text || "📎 Envió un archivo adjunto.";
 
     // Notificar si la app está en segundo plano (oculta), no tiene el foco del teclado, o es para otro chat
     if (document.hidden || !document.hasFocus() || !isCurrentChat) {
-        if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
-            window.chrome.webview.postMessage({
-                type: 'notification',
-                title: title,
-                body: body
-            });
-        }
+        notifyHost(title, body);
 
         if ("Notification" in window && Notification.permission === "granted") {
             new Notification(title, {
@@ -325,15 +319,45 @@ function triggerNotification(msg) {
     }
 }
 
+function notifyHost(title, body) {
+    try {
+        const hostBridge = window.chrome?.webview?.hostObjects?.sync?.chatAgendaBridge;
+        if (hostBridge && typeof hostBridge.Notify === 'function') {
+            hostBridge.Notify(title, body);
+            return true;
+        }
+    } catch (err) {
+        console.warn("No se pudo usar el puente de notificaciones del host:", err);
+    }
+
+    try {
+        if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+            window.chrome.webview.postMessage({
+                type: 'notification',
+                title: title,
+                body: body
+            });
+            return true;
+        }
+    } catch (err) {
+        console.warn("No se pudo enviar la notificación al host WebView2:", err);
+    }
+
+    return false;
+}
+
 function showToast(title, body) {
     const container = document.getElementById('toastContainer');
     if (!container) return;
 
+    const safeTitle = title == null ? 'Nuevo mensaje' : String(title);
+    const safeBody = body == null ? '📎 Envió un archivo adjunto.' : String(body);
+
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.innerHTML = `
-        <div class="toast-title">${escapeHTML(title)}</div>
-        <div class="toast-body">${escapeHTML(body)}</div>
+        <div class="toast-title">${escapeHTML(safeTitle)}</div>
+        <div class="toast-body">${escapeHTML(safeBody)}</div>
     `;
 
     toast.onclick = () => {
@@ -395,7 +419,8 @@ function scrollToBottom() {
 }
 
 function escapeHTML(str) {
-    return str.replace(/[&<>'"]/g, 
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[&<>'"]/g, 
         tag => ({
             '&': '&amp;',
             '<': '&lt;',
