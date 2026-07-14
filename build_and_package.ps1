@@ -1,72 +1,180 @@
-<#
-Script de compilación y empaquetado para Windows.
+# ChatAgenda - Script de empaquetado completo
+# Genera dos paquetes: Servidor y Cliente
+#
+# Requisitos: .NET 8 SDK en PATH
+# Opcional:   Inno Setup (ISCC.exe) para generar instaladores .exe
 
-Requisitos:
-- .NET 8 SDK instalado y en PATH
-- (Opcional) UPX instalado y en PATH para comprimir el .exe
-- (Opcional) Inno Setup (ISCC.exe) para generar instalador .exe
+param(
+    [string]$Configuration = "Release",
+    [string]$Runtime       = "win-x64"
+)
 
-Uso:
-1. Ejecutar en PowerShell: .\build_and_package.ps1
-2. El resultado de publish se deja en .\artifacts\publish\win-x64
-3. Si ISCC está instalado, generará un instalador en .\artifacts\installer
-#>
+$ErrorActionPreference = "Stop"
+$Root = $PSScriptRoot
+$ArtifactsDir = Join-Path $Root "artifacts"
 
-set -e
+function Write-Step { param([string]$msg) Write-Host "" ; Write-Host "==> $msg" -ForegroundColor Cyan }
+function Write-Ok   { param([string]$msg) Write-Host "  OK: $msg" -ForegroundColor Green }
+function Write-Warn { param([string]$msg) Write-Host "  ADVERTENCIA: $msg" -ForegroundColor Yellow }
 
-Write-Host "Iniciando build y empaquetado..."
+# Directorios de salida
+$OutBackend   = Join-Path $ArtifactsDir "backend\win-x64"
+$OutServer    = Join-Path $ArtifactsDir "server_v2\win-x64"
+$OutClient    = Join-Path $ArtifactsDir "client_v2\win-x64"
+$ZipDir       = Join-Path $ArtifactsDir "zip"
+$InstallerDir = Join-Path $ArtifactsDir "installer"
 
-$projectPath = "Client.WPF/Client.WPF.csproj"
-$configuration = "Release"
-$runtime = "win-x64"
-$publishDir = Join-Path -Path (Get-Location) -ChildPath "artifacts/publish/$runtime"
+New-Item -ItemType Directory -Path $OutBackend   -Force | Out-Null
+New-Item -ItemType Directory -Path $OutServer    -Force | Out-Null
+New-Item -ItemType Directory -Path $OutClient    -Force | Out-Null
+New-Item -ItemType Directory -Path $ZipDir       -Force | Out-Null
+New-Item -ItemType Directory -Path $InstallerDir -Force | Out-Null
 
-if (-not (Test-Path $projectPath)) {
-	Write-Error "No se encontró el proyecto: $projectPath"
-	exit 1
-}
+# --- 1. Publicar backend ASP.NET ---
+Write-Step "1/4 Publicando servidor ASP.NET (chatAgenda)..."
 
-Write-Host "Publicando proyecto $projectPath (Release, $runtime)..."
-
-dotnet publish $projectPath -c $configuration -r $runtime --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=false -o $publishDir
+$BackendProj = Join-Path $Root "chatAgenda.csproj"
+dotnet publish $BackendProj `
+    -c $Configuration -r $Runtime `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:PublishTrimmed=false `
+    -o $OutBackend
 
 if ($LASTEXITCODE -ne 0) {
-	Write-Error "dotnet publish falló (código $LASTEXITCODE)"
-	exit $LASTEXITCODE
+    Write-Host "ERROR: Fallo en publicacion del backend" -ForegroundColor Red
+    exit 1
 }
+Write-Ok "Backend publicado en: $OutBackend"
 
-Write-Host "Publicación completada: $publishDir"
+# --- 2. Publicar WPF Servidor ---
+Write-Step "2/4 Publicando WPF Servidor (Server.WPF)..."
 
-# Intentar comprimir con UPX si está disponible
-if (Get-Command upx -ErrorAction SilentlyContinue) {
-	Write-Host "UPX detectado: comprimiendo ejecutables..."
-	Get-ChildItem -Path $publishDir -Filter *.exe -Recurse | ForEach-Object {
-		Write-Host "Comprimiendo $_.FullName"
-		& upx --best --lzma $_.FullName
-	}
+$ServerWpfProj = Join-Path $Root "Server.WPF\Server.WPF.csproj"
+dotnet publish $ServerWpfProj `
+    -c $Configuration -r $Runtime `
+    --self-contained true `
+    -p:PublishSingleFile=false `
+    -p:PublishReadyToRun=true `
+    -o $OutServer
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Fallo en publicacion del WPF Servidor" -ForegroundColor Red
+    exit 1
+}
+Write-Ok "WPF Servidor publicado en: $OutServer"
+
+# --- 3. Copiar backend al directorio del WPF Servidor ---
+Write-Step "3/4 Copiando chatAgenda.exe al paquete del servidor..."
+
+$BackendExe = Get-ChildItem -Path $OutBackend -Filter "chatAgenda.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+if ($null -ne $BackendExe) {
+    Copy-Item $BackendExe.FullName (Join-Path $OutServer "chatAgenda.exe") -Force
+    Write-Ok "chatAgenda.exe copiado correctamente"
 } else {
-	Write-Host "UPX no encontrado: omitiendo compresión. Para comprimir, instale UPX y vuelva a ejecutar el script."
+    # Buscar cualquier exe del backend (puede tener otro nombre)
+    $AnyExe = Get-ChildItem -Path $OutBackend -Filter "*.exe" -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -notlike "ChatAgenda*.exe" } |
+              Select-Object -First 1
+    if ($null -ne $AnyExe) {
+        Copy-Item $AnyExe.FullName (Join-Path $OutServer "chatAgenda.exe") -Force
+        Write-Ok "Copiado como chatAgenda.exe: $($AnyExe.Name)"
+    } else {
+        Write-Warn "No encontrado chatAgenda.exe. Copialo manualmente de $OutBackend a $OutServer"
+    }
 }
 
-# Generar instalador con Inno Setup si ISCC está disponible
-$issPath = "installer/ClientWPF.iss"
-if (Test-Path $issPath) {
-	$iscc = Get-Command ISCC.exe -ErrorAction SilentlyContinue
-	if ($iscc) {
-		Write-Host "ISCC encontrado: generando instalador..."
-		$installerOut = Join-Path -Path (Get-Location) -ChildPath "artifacts/installer"
-		New-Item -ItemType Directory -Path $installerOut -Force | Out-Null
-		& $iscc.Path $issPath /O"$installerOut" /DMyAppPublishDir="$publishDir"
-		if ($LASTEXITCODE -ne 0) {
-			Write-Warning "ISCC falló con código $LASTEXITCODE"
-		} else {
-			Write-Host "Instalador generado en: $installerOut"
-		}
-	} else {
-		Write-Host "ISCC (Inno Setup Compiler) no encontrado: para crear un instalador instale Inno Setup y asegúrese de que ISCC.exe esté en PATH."
-	}
+# --- 4. Publicar WPF Cliente ---
+Write-Step "4/4 Publicando WPF Cliente (Client.WPF)..."
+
+$ClientWpfProj = Join-Path $Root "Client.WPF\Client.WPF.csproj"
+dotnet publish $ClientWpfProj `
+    -c $Configuration -r $Runtime `
+    --self-contained true `
+    -p:PublishSingleFile=false `
+    -p:PublishReadyToRun=true `
+    -o $OutClient
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Fallo en publicacion del WPF Cliente" -ForegroundColor Red
+    exit 1
+}
+Write-Ok "WPF Cliente publicado en: $OutClient"
+
+# --- Generar ZIPs ---
+Write-Step "Generando archivos ZIP..."
+
+$ZipServer = Join-Path $ZipDir "ChatAgenda_Servidor.zip"
+$ZipClient = Join-Path $ZipDir "ChatAgenda_Cliente.zip"
+
+if (Test-Path $ZipServer) { Remove-Item $ZipServer -Force }
+if (Test-Path $ZipClient) { Remove-Item $ZipClient -Force }
+
+Compress-Archive -Path "$OutServer\*" -DestinationPath $ZipServer
+Compress-Archive -Path "$OutClient\*" -DestinationPath $ZipClient
+
+Write-Ok "ZIP Servidor: $ZipServer"
+Write-Ok "ZIP Cliente:  $ZipClient"
+
+# --- Inno Setup (opcional) ---
+$IsccPaths = @(
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+)
+$Iscc = $IsccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+if (-not $Iscc) {
+    $IsccCmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+    if ($IsccCmd) {
+        $Iscc = $IsccCmd.Source
+    }
+}
+
+if ($Iscc) {
+    Write-Step "Inno Setup encontrado. Generando instaladores .exe..."
+    $InstallerDir = Join-Path $Root "artifacts\installer"
+    New-Item -ItemType Directory -Path $InstallerDir -Force | Out-Null
+
+    $IssServer = Join-Path $Root "installer\ServerApp.iss"
+    $IssClient = Join-Path $Root "installer\ClientApp.iss"
+
+    if (Test-Path $IssServer) {
+        & $Iscc $IssServer /O"$InstallerDir" /DPublishDir="$OutServer"
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Instalador servidor generado en: $InstallerDir"
+        } else {
+            Write-Warn "ISCC fallo para instalador servidor (codigo $LASTEXITCODE)"
+        }
+    } else {
+        Write-Warn "No encontrado: $IssServer"
+    }
+
+    if (Test-Path $IssClient) {
+        & $Iscc $IssClient /O"$InstallerDir" /DPublishDir="$OutClient"
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "Instalador cliente generado en: $InstallerDir"
+        } else {
+            Write-Warn "ISCC fallo para instalador cliente (codigo $LASTEXITCODE)"
+        }
+    } else {
+        Write-Warn "No encontrado: $IssClient"
+    }
 } else {
-	Write-Host "No existe el script de Inno Setup: $issPath. Omite creación de instalador."
+    Write-Warn "Inno Setup no encontrado. Solo se generaron ZIPs."
+    Write-Host "  Para instalar Inno Setup: https://jrsoftware.org/isdl.php" -ForegroundColor Gray
 }
 
-Write-Host "Proceso finalizado."
+# --- Resumen ---
+Write-Host ""
+Write-Host "=================================================" -ForegroundColor Cyan
+Write-Host "  EMPAQUETADO COMPLETADO" -ForegroundColor Green
+Write-Host "=================================================" -ForegroundColor Cyan
+Write-Host "  Servidor WPF:  $OutServer"
+Write-Host "  Cliente WPF:   $OutClient"
+Write-Host "  ZIPs:          $ZipDir"
+Write-Host ""
+Write-Host "  Distribuir ChatAgenda_Servidor.zip => PC Servidor"
+Write-Host "  Distribuir ChatAgenda_Cliente.zip  => Resto de PCs"
+Write-Host "=================================================" -ForegroundColor Cyan

@@ -10,3 +10,12 @@ Client.WPF/bin/
 Client.WPF/obj/
 
 artifacts/
+
+artifacts/
+publish/
+dotnet/
+dotnet-install.ps1
+query
+start
+stop
+

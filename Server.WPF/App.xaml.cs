@@ -1,6 +1,6 @@
 using System.Windows;
 
-namespace EmpresaChat
+namespace ChatAgendaServer
 {
     public partial class App : System.Windows.Application
     {

@@ -4,9 +4,15 @@ let eventsList = [];
 let googleSyncState = { isEnabled: false, calendarId: '' };
 let selectedEvent = null;
 
+// Notification tracking: store IDs of already-notified events
+let notifiedEvents = JSON.parse(localStorage.getItem('ca_notified_events') || '{}');
+let calendarNotificationInterval = null;
+
 window.calendarApp = {
     initCalendar,
-    loadEvents
+    loadEvents,
+    startEventReminders,
+    stopEventReminders
 };
 
 // Initialize listeners on load
@@ -38,7 +44,187 @@ async function initCalendar() {
     
     // 2. Load and render events
     await loadEvents();
+
+    // 3. Start event reminders (if not already running)
+    startEventReminders();
 }
+
+// ─── CALENDAR EVENT NOTIFICATION SYSTEM ─────────────────────────────────────
+
+/**
+ * Starts a periodic checker that fires every 60 seconds to detect upcoming events.
+ * Shows a notification 15 minutes before the event and at the exact start time.
+ */
+function startEventReminders() {
+    if (calendarNotificationInterval) return; // Already running
+
+    // Run immediately on first call, then every 60 seconds
+    checkUpcomingEvents();
+    calendarNotificationInterval = setInterval(checkUpcomingEvents, 60 * 1000);
+    console.log('[CalendarReminders] Iniciado — revisando eventos cada 60 segundos.');
+}
+
+function stopEventReminders() {
+    if (calendarNotificationInterval) {
+        clearInterval(calendarNotificationInterval);
+        calendarNotificationInterval = null;
+        console.log('[CalendarReminders] Detenido.');
+    }
+}
+
+/**
+ * Fetches today's events from the server and checks if any are starting soon.
+ */
+async function checkUpcomingEvents() {
+    try {
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+
+        const response = await fetch(`/api/calendar?start=${todayStart.toISOString()}&end=${todayEnd.toISOString()}`);
+        if (!response.ok) return;
+
+        const todayEvents = await response.json();
+
+        todayEvents.forEach(event => {
+            const eventStart = new Date(event.startTime);
+            const msUntilEvent = eventStart - now;
+            const minutesUntilEvent = msUntilEvent / 60000;
+
+            // Window: notify if event is between -2 min (just started) and 16 min away
+            if (minutesUntilEvent >= -2 && minutesUntilEvent <= 16) {
+                const notifKey15 = `${event.id}_15min`;
+                const notifKeyNow = `${event.id}_now`;
+
+                // 15-minute advance warning (between 14 and 16 minutes away)
+                if (minutesUntilEvent >= 14 && minutesUntilEvent <= 16 && !notifiedEvents[notifKey15]) {
+                    notifiedEvents[notifKey15] = true;
+                    saveNotifiedEvents();
+                    sendCalendarNotification(
+                        '📅 Evento en 15 minutos',
+                        `"${event.title}" comienza a las ${eventStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    );
+                }
+
+                // At event start time (between -2 and 2 minutes)
+                if (minutesUntilEvent >= -2 && minutesUntilEvent <= 2 && !notifiedEvents[notifKeyNow]) {
+                    notifiedEvents[notifKeyNow] = true;
+                    saveNotifiedEvents();
+                    sendCalendarNotification(
+                        '🔔 Evento ahora: ' + event.title,
+                        event.description ? event.description.substring(0, 100) : 'El evento ha comenzado.'
+                    );
+                }
+            }
+        });
+
+        // Clean up old notification keys (keep only today's)
+        pruneOldNotifiedEvents();
+
+    } catch (err) {
+        console.warn('[CalendarReminders] Error al revisar eventos:', err);
+    }
+}
+
+/**
+ * Sends a notification using the WPF bridge (native Windows toast) or browser Notification API.
+ */
+function sendCalendarNotification(title, body) {
+    console.log(`[CalendarReminders] Notificación: ${title} — ${body}`);
+
+    // Method 1: WPF WebView2 host bridge (native Windows notification)
+    try {
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage(JSON.stringify({
+                type: 'notification',
+                title: title,
+                body: body
+            }));
+            return; // Bridge sent, no need for fallback
+        }
+    } catch (e) {
+        console.warn('[CalendarReminders] Bridge WPF no disponible:', e);
+    }
+
+    // Method 2: Browser Notification API
+    try {
+        if (typeof window.Notification !== 'undefined') {
+            if (window.Notification.permission === 'granted') {
+                new window.Notification(title, {
+                    body: body,
+                    icon: '/favicon.ico',
+                    tag: `calendar-${Date.now()}`
+                });
+            } else if (window.Notification.permission !== 'denied') {
+                window.Notification.requestPermission().then(perm => {
+                    if (perm === 'granted') {
+                        new window.Notification(title, { body: body });
+                    }
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('[CalendarReminders] Browser Notification no disponible:', e);
+    }
+
+    // Method 3: In-app toast fallback (always visible inside the web app)
+    showInAppCalendarToast(title, body);
+}
+
+/**
+ * Shows a stylized in-app toast notification for calendar events.
+ */
+function showInAppCalendarToast(title, body) {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast-notification toast-calendar';
+    toast.innerHTML = `
+        <div class="toast-icon">📅</div>
+        <div class="toast-content">
+            <div class="toast-title">${title}</div>
+            <div class="toast-body">${body}</div>
+        </div>
+        <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+    `;
+
+    container.appendChild(toast);
+
+    // Auto-remove after 8 seconds
+    setTimeout(() => {
+        if (toast.parentElement) toast.remove();
+    }, 8000);
+}
+
+/**
+ * Persist notified events to localStorage.
+ */
+function saveNotifiedEvents() {
+    try {
+        localStorage.setItem('ca_notified_events', JSON.stringify(notifiedEvents));
+    } catch (e) { /* ignore quota errors */ }
+}
+
+/**
+ * Remove notification keys older than 2 days to prevent localStorage bloat.
+ */
+function pruneOldNotifiedEvents() {
+    // Simple pruning: if we have more than 500 keys, clear them all
+    const keys = Object.keys(notifiedEvents);
+    if (keys.length > 500) {
+        notifiedEvents = {};
+        saveNotifiedEvents();
+    }
+}
+
+// ─── END NOTIFICATION SYSTEM ─────────────────────────────────────────────────
+
 
 async function loadSyncState() {
     try {

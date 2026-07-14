@@ -67,6 +67,11 @@ async function completeAppInitialization() {
     // Establish SignalR connection
     initSignalR();
 
+    // Start calendar event reminders in the background (works regardless of active view)
+    if (window.calendarApp && typeof window.calendarApp.startEventReminders === 'function') {
+        window.calendarApp.startEventReminders();
+    }
+
     // Navigate to default chat view
     switchView(activeView);
 }

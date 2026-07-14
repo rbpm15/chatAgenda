@@ -17,6 +17,15 @@
     <Content Remove="Client.WPF\**" />
     <EmbeddedResource Remove="Client.WPF\**" />
     <None Remove="Client.WPF\**" />
+    <Compile Remove="Server.WPF\**" />
+    <Content Remove="Server.WPF\**" />
+    <EmbeddedResource Remove="Server.WPF\**" />
+    <None Remove="Server.WPF\**" />
+    <Compile Remove="artifacts\**" />
+    <Content Remove="artifacts\**" />
+    <EmbeddedResource Remove="artifacts\**" />
+    <None Remove="artifacts\**" />
+    <Compile Remove="GenerateIcon.cs" />
   </ItemGroup>
 
 </Project>
