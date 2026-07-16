@@ -11,6 +11,8 @@
     <AssemblyName>EmpresaChat</AssemblyName>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <StartupObject>EmpresaChat.App</StartupObject>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
