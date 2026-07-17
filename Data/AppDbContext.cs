@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using ChatAgenda.Models;
 using ChatAgenda.Services;
 using System;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace ChatAgenda.Data
 {
@@ -21,6 +22,31 @@ namespace ChatAgenda.Data
         {
             base.OnModelCreating(modelBuilder);
 
+            var dateTimeConverter = new ValueConverter<DateTime, DateTime>(
+                v => v.ToUniversalTime(),
+                v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            var nullableDateTimeConverter = new ValueConverter<DateTime?, DateTime?>(
+                v => v.HasValue ? v.Value.ToUniversalTime() : v,
+                v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                if (entityType.IsKeyless) continue;
+
+                foreach (var property in entityType.GetProperties())
+                {
+                    if (property.ClrType == typeof(DateTime))
+                    {
+                        property.SetValueConverter(dateTimeConverter);
+                    }
+                    else if (property.ClrType == typeof(DateTime?))
+                    {
+                        property.SetValueConverter(nullableDateTimeConverter);
+                    }
+                }
+            }
+
             // Configure unique Username
             modelBuilder.Entity<User>()
                 .HasIndex(u => u.Username)
@@ -36,39 +62,6 @@ namespace ChatAgenda.Data
                     PasswordHash = PasswordHasher.HashPassword("admin"),
                     Role = "Admin",
                     Department = "Sistemas",
-                    IsActive = true,
-                    CreatedAt = DateTime.Parse("2026-01-01T00:00:00Z").ToUniversalTime()
-                },
-                new User
-                {
-                    Id = "u-ana-2222",
-                    Username = "ana",
-                    DisplayName = "Ana López",
-                    PasswordHash = PasswordHasher.HashPassword("ana123"),
-                    Role = "Supervisor",
-                    Department = "Ventas",
-                    IsActive = true,
-                    CreatedAt = DateTime.Parse("2026-01-01T00:00:00Z").ToUniversalTime()
-                },
-                new User
-                {
-                    Id = "u-juan-3333",
-                    Username = "juan",
-                    DisplayName = "Juan Pérez",
-                    PasswordHash = PasswordHasher.HashPassword("juan123"),
-                    Role = "Employee",
-                    Department = "Ventas",
-                    IsActive = true,
-                    CreatedAt = DateTime.Parse("2026-01-01T00:00:00Z").ToUniversalTime()
-                },
-                new User
-                {
-                    Id = "u-pedro-4444",
-                    Username = "pedro",
-                    DisplayName = "Pedro Gómez",
-                    PasswordHash = PasswordHasher.HashPassword("pedro123"),
-                    Role = "Employee",
-                    Department = "Administración",
                     IsActive = true,
                     CreatedAt = DateTime.Parse("2026-01-01T00:00:00Z").ToUniversalTime()
                 }

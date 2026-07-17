@@ -36,6 +36,11 @@ function setupCalendarListeners() {
     if (btnCancel) btnCancel.addEventListener('click', closeEventModal);
     if (btnDelete) btnDelete.addEventListener('click', deleteEvent);
     if (form) form.addEventListener('submit', saveEvent);
+
+    const btnDayClose = document.getElementById('dayEventsClose');
+    const btnDayCancel = document.getElementById('btnCancelDayEvents');
+    if (btnDayClose) btnDayClose.addEventListener('click', closeDayEventsModal);
+    if (btnDayCancel) btnDayCancel.addEventListener('click', closeDayEventsModal);
 }
 
 async function initCalendar() {
@@ -58,10 +63,10 @@ async function initCalendar() {
 function startEventReminders() {
     if (calendarNotificationInterval) return; // Already running
 
-    // Run immediately on first call, then every 60 seconds
+    // Run immediately on first call, then every 30 seconds
     checkUpcomingEvents();
-    calendarNotificationInterval = setInterval(checkUpcomingEvents, 60 * 1000);
-    console.log('[CalendarReminders] Iniciado — revisando eventos cada 60 segundos.');
+    calendarNotificationInterval = setInterval(checkUpcomingEvents, 30 * 1000);
+    console.log('[CalendarReminders] Iniciado — revisando eventos cada 30 segundos.');
 }
 
 function stopEventReminders() {
@@ -91,23 +96,23 @@ async function checkUpcomingEvents() {
             const msUntilEvent = eventStart - now;
             const minutesUntilEvent = msUntilEvent / 60000;
 
-            // Window: notify if event is between -2 min (just started) and 16 min away
-            if (minutesUntilEvent >= -2 && minutesUntilEvent <= 16) {
+            // Window: notify if event is between -5 min (just started) and 16 min away
+            if (minutesUntilEvent >= -5 && minutesUntilEvent <= 16) {
                 const notifKey15 = `${event.id}_15min`;
                 const notifKeyNow = `${event.id}_now`;
 
-                // 15-minute advance warning (between 14 and 16 minutes away)
-                if (minutesUntilEvent >= 14 && minutesUntilEvent <= 16 && !notifiedEvents[notifKey15]) {
+                // Advance warning (if event is between 0 and 16 minutes away)
+                if (minutesUntilEvent > 0 && minutesUntilEvent <= 16 && !notifiedEvents[notifKey15]) {
                     notifiedEvents[notifKey15] = true;
                     saveNotifiedEvents();
                     sendCalendarNotification(
-                        '📅 Evento en 15 minutos',
-                        `"${event.title}" comienza a las ${eventStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        '📅 Evento próximo',
+                        `"${event.title}" comienza en ${Math.ceil(minutesUntilEvent)} minutos`
                     );
                 }
 
-                // At event start time (between -2 and 2 minutes)
-                if (minutesUntilEvent >= -2 && minutesUntilEvent <= 2 && !notifiedEvents[notifKeyNow]) {
+                // At event start time (between -5 and 0 minutes)
+                if (minutesUntilEvent >= -5 && minutesUntilEvent <= 0 && !notifiedEvents[notifKeyNow]) {
                     notifiedEvents[notifKeyNow] = true;
                     saveNotifiedEvents();
                     sendCalendarNotification(
@@ -132,21 +137,52 @@ async function checkUpcomingEvents() {
 function sendCalendarNotification(title, body) {
     console.log(`[CalendarReminders] Notificación: ${title} — ${body}`);
 
-    // Method 1: WPF WebView2 host bridge (native Windows notification)
+    // Intentar método 1: Host bridge sync
     try {
-        if (window.chrome && window.chrome.webview) {
-            window.chrome.webview.postMessage(JSON.stringify({
+        const hostBridge = window.chrome?.webview?.hostObjects?.sync?.chatAgendaBridge;
+        if (hostBridge && typeof hostBridge.Notify === 'function') {
+            console.log("[CalendarReminders] Usando método 1: Host bridge");
+            hostBridge.Notify(title, body);
+            return;
+        }
+    } catch (err) {}
+
+    // Intentar método 2: WPF WebView2 host bridge or CefSharp (native Windows notification)
+    try {
+        if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+            console.log("[CalendarReminders] Usando método 2: postMessage (chrome)");
+            window.chrome.webview.postMessage({
                 type: 'notification',
                 title: title,
-                body: body
+                body: body,
+                source: 'calendar'
+            });
+            return; // Bridge sent
+        } else if (window.CefSharp && window.CefSharp.PostMessage) {
+            console.log("[CalendarReminders] Usando método 2: postMessage (CefSharp)");
+            window.CefSharp.PostMessage(JSON.stringify({
+                type: 'notification',
+                title: title,
+                body: body,
+                source: 'calendar'
             }));
-            return; // Bridge sent, no need for fallback
+            return;
         }
     } catch (e) {
-        console.warn('[CalendarReminders] Bridge WPF no disponible:', e);
+        console.warn('[CalendarReminders] Bridge WPF/CefSharp no disponible:', e);
     }
 
-    // Method 2: Browser Notification API
+    // Intentar método 3: Enviar al servidor (fallback de escritorio)
+    try {
+        console.log("[CalendarReminders] Usando método 3: Servidor fallback");
+        fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body })
+        }).catch(e => console.warn("[CalendarReminders] Error en fallback:", e));
+    } catch (err) {}
+
+    // Method 4: Browser Notification API
     try {
         if (typeof window.Notification !== 'undefined') {
             if (window.Notification.permission === 'granted') {
@@ -158,14 +194,12 @@ function sendCalendarNotification(title, body) {
             } else if (window.Notification.permission !== 'denied') {
                 window.Notification.requestPermission().then(perm => {
                     if (perm === 'granted') {
-                        new window.Notification(title, { body: body });
+                        new window.Notification(title, { body: body, icon: '/favicon.ico' });
                     }
                 });
             }
         }
-    } catch (e) {
-        console.warn('[CalendarReminders] Browser Notification no disponible:', e);
-    }
+    } catch (e) {}
 
     // Method 3: In-app toast fallback (always visible inside the web app)
     showInAppCalendarToast(title, body);
@@ -352,11 +386,11 @@ function createDayCell(dayNum, date, isOtherMonth, isToday = false) {
         <div class="day-events" id="events-container-${formatDateKey(date)}"></div>
     `;
 
-    // Click on empty space to create new event
+    // Click on empty space to view day events
     cell.addEventListener('click', (e) => {
-        // Prevent trigger if clicking on an event pill
+        // Prevent trigger if clicking on an event pill (though pills now also can bubble to open the day view if preferred, but let's keep pills opening the event directly or stop propagation)
         if (e.target.classList.contains('calendar-event-pill')) return;
-        openEventModal(null, date);
+        openDayEventsModal(date);
     });
 
     // Populate events for this date
@@ -456,6 +490,54 @@ function closeEventModal() {
     const modal = document.getElementById('eventModal');
     if (modal) modal.style.display = 'none';
     selectedEvent = null;
+}
+
+function openDayEventsModal(date) {
+    const modal = document.getElementById('dayEventsModal');
+    const title = document.getElementById('dayEventsTitle');
+    const list = document.getElementById('dayEventsList');
+    const btnNew = document.getElementById('btnNewEventFromDay');
+
+    if (!modal) return;
+
+    title.textContent = `Eventos: ${date.toLocaleDateString()}`;
+    list.innerHTML = '';
+
+    const cellDateKey = formatDateKey(date);
+    const dayEvents = eventsList.filter(e => formatDateKey(new Date(e.startTime)) === cellDateKey);
+
+    if (dayEvents.length === 0) {
+        list.innerHTML = '<div style="color: var(--text-secondary); font-size: 0.9rem; padding: 1rem 0; text-align: center;">No hay eventos para este día.</div>';
+    } else {
+        dayEvents.forEach(ev => {
+            const time = new Date(ev.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const item = document.createElement('div');
+            item.style.cssText = 'padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; cursor: pointer; transition: background 0.2s;';
+            item.innerHTML = `
+                <div style="font-weight: 600; font-size: 0.9rem; color: var(--text-primary); margin-bottom: 4px;">${ev.title}</div>
+                <div style="font-size: 0.8rem; color: var(--primary-color);">${time}</div>
+            `;
+            item.addEventListener('mouseover', () => item.style.background = 'var(--bg-active)');
+            item.addEventListener('mouseout', () => item.style.background = 'transparent');
+            item.addEventListener('click', () => {
+                closeDayEventsModal();
+                openEventModal(ev);
+            });
+            list.appendChild(item);
+        });
+    }
+
+    btnNew.onclick = () => {
+        closeDayEventsModal();
+        openEventModal(null, date);
+    };
+
+    modal.style.display = 'flex';
+}
+
+function closeDayEventsModal() {
+    const modal = document.getElementById('dayEventsModal');
+    if (modal) modal.style.display = 'none';
 }
 
 async function saveEvent(e) {

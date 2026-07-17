@@ -1,7 +1,7 @@
 ; ChatAgenda — Instalador del CLIENTE
 ; Solo instala la app WPF cliente. No incluye servidor.
 
-#define MyAppName      "ChatAgenda Cliente"
+#define MyAppName      "ChatEmpresa"
 #define MyAppVersion   "2.1"
 #define MyAppPublisher "ChatAgenda"
 #define MyAppExeName   "EmpresaChat.exe"
@@ -27,13 +27,13 @@ MinVersion               =10.0
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Files]
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "*.WebView2\*,*.pdb"
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "*.pdb"
 
 [Icons]
-Name: "{group}\ChatAgenda";            Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\ChatAgenda";            Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{group}\Desinstalar ChatAgenda Cliente"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\ChatAgenda";    Filename: "{app}\{#MyAppExeName}"
-Name: "{userstartup}\ChatAgenda";      Filename: "{app}\{#MyAppExeName}"; Comment: "Iniciar con Windows"
+Name: "{commondesktop}\ChatAgenda";    Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{userstartup}\ChatAgenda";      Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "Iniciar con Windows"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; \

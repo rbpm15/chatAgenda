@@ -1,8 +1,8 @@
 <Window x:Class="EmpresaChat.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
-        Title="ChatAgenda — Cliente" Height="820" Width="420"
+        xmlns:cef="clr-namespace:CefSharp.Wpf;assembly=CefSharp.Wpf"
+        Title="ChatAgenda — Cliente" Height="700" Width="420"
         WindowStartupLocation="Manual"
         Background="#F8FAFC"
         Icon="app.ico">
@@ -58,20 +58,18 @@
                 </Grid.ColumnDefinitions>
 
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="✦ ChatAgenda" FontWeight="Bold" Foreground="{StaticResource TextPrimary}"
-                               FontSize="14" VerticalAlignment="Center" Margin="0,0,12,0" FontFamily="Segoe UI"/>
                     <TextBlock x:Name="StatusText" Text="Conectando..." VerticalAlignment="Center"
-                               Foreground="{StaticResource TextSecondary}" FontSize="11" FontFamily="Segoe UI"/>
+                               Foreground="{StaticResource TextSecondary}" FontSize="11" FontFamily="Segoe UI" Visibility="Collapsed"/>
                 </StackPanel>
 
-                <Button Grid.Column="1" Content="⚙ Cambiar IP" Style="{StaticResource BtnPrimary}"
+                <Button Grid.Column="1" Content="⚙ Configuración" Style="{StaticResource BtnPrimary}"
                         Click="BtnChangeMode_Click" Padding="10,5" FontSize="11"
                         Background="#F1F5F9" Foreground="#334155"/>
             </Grid>
         </Border>
 
         <!-- ══ WEBVIEW (ocupa toda la ventana cuando conectado) ══ -->
-        <wv2:WebView2 Grid.Row="1" x:Name="WebView" Source="about:blank"/>
+        <cef:ChromiumWebBrowser Grid.Row="1" x:Name="WebView" Address="about:blank"/>
 
         <!-- ══ SETUP OVERLAY ══ -->
         <Grid Grid.Row="0" Grid.RowSpan="2" x:Name="SetupOverlay"

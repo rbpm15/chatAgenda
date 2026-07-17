@@ -49,6 +49,14 @@ try
     {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         db.Database.EnsureCreated();
+
+        // Cleanup seeded users if they exist
+        var toRemove = db.Users.Where(u => u.Username == "ana" || u.Username == "juan" || u.Username == "pedro").ToList();
+        if (toRemove.Any())
+        {
+            db.Users.RemoveRange(toRemove);
+            db.SaveChanges();
+        }
     }
 
     // HTTP pipeline configuration

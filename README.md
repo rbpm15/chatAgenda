@@ -41,8 +41,8 @@ La aplicación elimina la necesidad de crear cuentas individuales de Google para
 * Tener instalado el **.NET 8 SDK** en la computadora que actuará como servidor.
 * Windows, Linux o macOS en la red local.
 
-### 2. Compilar e Iniciar el Servidor
-Ejecuta los siguientes comandos en la raíz del proyecto para restaurar paquetes, compilar e iniciar la aplicación:
+### 2. Iniciar el Servidor
+Para iniciar la base de datos local SQLite y correr el servidor backend/web, ejecuta los siguientes comandos desde la carpeta raíz:
 
 ```bash
 dotnet build
@@ -50,10 +50,10 @@ dotnet run --launch-profile http
 ```
 
 Por defecto, el servidor web local estará escuchando en:
-* **http://localhost:5002** (o la dirección IP local asignada en la red de la oficina, por ejemplo, `http://192.168.1.100:5002`).
+* **http://localhost:5002** (o la dirección IP local de la máquina en la red local, ej: `http://192.168.1.100:5002`).
 
 ### 3. Credenciales de Prueba (Semilla Automática)
-Al iniciar por primera vez, el servidor crea una base de datos local SQLite (`chatagenda.db`) y genera los siguientes usuarios de demostración listos para usar:
+Al iniciar por primera vez, el servidor crea una base de datos local SQLite (`chatagenda.db`) y genera los siguientes usuarios de prueba listos para usar:
 
 | Usuario | Contraseña | Rol | Departamento |
 | :--- | :--- | :--- | :--- |
@@ -104,7 +104,6 @@ El sistema sincroniza automáticamente los eventos en segundo plano en intervalo
 
 ## 🔒 Resolución de Conflictos y Auditoría
 
-Para garantizar la coherencia en un entorno de red local y móvil híbrido, el sincronizador sigue las siguientes directrices:
 * **Última modificación gana:** Si un evento es modificado simultáneamente en Google Calendar (celular) y en el servidor local (oficina), el sistema comparará las marcas de tiempo UTC (`LastModified`). El cambio con la fecha más reciente sobreescribirá al otro.
 * **Registro de Auditoría:** En el Panel de Administración, el sistema mantiene una terminal en tiempo real con el historial de todas las sincronizaciones, modificaciones, creaciones y eliminaciones de eventos, indicando el usuario responsable (ej: `"Juan Pérez"` o `"Google Mobile User"`) y cómo se resolvió cualquier conflicto.
 
@@ -112,34 +111,41 @@ Para garantizar la coherencia en un entorno de red local y móvil híbrido, el s
 
 ## 🖥️ Cliente Windows Desktop (`EmpresaChat.exe`)
 
-El directorio `Client.WPF/` contiene una aplicación nativa Windows C# WPF que envuelve nuestra interfaz en un ejecutable de escritorio utilizando **Microsoft WebView2 Runtime**.
+El directorio `Client.WPF/` contiene una aplicación nativa Windows C# WPF que encapsula la interfaz web para los empleados. 
 
 ### Características del Cliente de Escritorio:
-* **Configuración de IP de Servidor LAN:** El cliente incluye un botón superior de configuración (`⚙️ Servidor`) que permite a cualquier usuario de la oficina ingresar la IP del servidor local en la red (ej: `http://192.168.1.120:5002`) y conectarse instantáneamente. Esta dirección se guarda localmente en un archivo de texto de configuración persistente.
-* **Inicio Seguro:** La sesión de usuario se mantiene de manera segura mediante cookies locales en el contenedor del navegador.
-
-### Compilar y Publicar el Ejecutable:
-Para compilar la aplicación y generar el archivo `.exe` ejecutable para los empleados, abre tu terminal y ejecuta:
-
-```bash
-cd Client.WPF
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:PublishReadyToRun=true
-```
-
-El ejecutable standalone se generará en:
-`Client.WPF/bin/Release/net8.0-windows/win-x64/publish/EmpresaChat.exe`
+* **CefSharp (Chromium Embedded Framework):** La aplicación utiliza **CefSharp** como motor de renderizado interno de Chromium en vez del WebView2 tradicional de Windows. Esto asegura que la aplicación sea totalmente self-contained y no dependa de si el usuario final tiene instalados componentes de Windows Edge actualizados.
+* **Configuración de IP de Servidor LAN:** El cliente incluye un botón superior de configuración (`⚙️ Configuración`) que permite a cualquier usuario de la oficina ingresar la IP del servidor local en la red (ej: `http://192.168.1.120:5002`) y conectarse instantáneamente. Esta dirección se guarda localmente en el archivo `client_config.txt` junto al ejecutable.
+* **Inicio con Windows (Auto-start):** El instalador configura un acceso directo en la carpeta de Inicio de Windows (`{userstartup}`) apuntando a `EmpresaChat.exe` y definiendo el directorio de trabajo correcto (`WorkingDir`) para que la aplicación se inicie automáticamente en segundo plano (minimizada en el System Tray) al encender la PC.
 
 ---
 
-## 🛠️ Tecnologías y Estructura del Código
+## 🛠️ Empaquetado y Compilación Completa
 
-* **Backend:** ASP.NET Core Web API con .NET 8.
-* **Base de Datos:** EF Core + SQLite (Ligero y libre de instalaciones de motores externos en el servidor local).
-* **Mensajería LAN:** SignalR (WebSockets y WebSockets fallback) para comunicación bidireccional inmediata en tiempo real.
-* **Seguridad:** Hashing PBKDF2 de contraseñas con sal aleatoria de 128 bits.
-* **Frontend:** Vanilla JS (ES6) + CSS Glassmorphism premium (sin dependencias de frameworks pesados o Tailwind, ideal para renderizado rápido y minimalista).
+Para facilitar la distribución de la app, el proyecto contiene un script PowerShell maestro que compila todas las partes del cliente y prepara el instalador del cliente con Inno Setup:
 
+### Generar Instalador del Cliente
 
-dotnet publish Client.WPF/Client.WPF.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+Ejecuta el script maestro desde una consola de PowerShell en la raíz del proyecto:
 
-https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section
+```powershell
+.\build_and_package.ps1
+```
+
+Este script:
+1. Compila y publica la aplicación cliente en modo `Release` autocompilado de 64 bits.
+2. Copia todos los binarios integrados de Chromium (CefSharp).
+3. Si Inno Setup 6 está instalado, compila el script `installer\ClientApp.iss`.
+4. El instalador completo (~160MB debido a las librerías Chromium integradas) se generará en:
+   👉 `artifacts\installer\ChatAgenda_Cliente_Setup.exe`
+
+---
+
+## 📁 Estructura del Proyecto
+
+* **`Client.WPF`**: Aplicación de escritorio C# WPF basada en CefSharp.
+* **`installer`**: Script de Inno Setup (`ClientApp.iss`) para empaquetado del cliente.
+* **`wwwroot`**: Archivos estáticos HTML, CSS, e imágenes de la interfaz web del sistema.
+* **`artifacts`**: Carpeta donde se depositan las compilaciones finales y ejecutables.
+* **`Servidor ChatAgenda`**: Carpeta utilizada para instalar y ejecutar el servidor.
+* **`chatAgenda.csproj`**: Proyecto backend principal ASP.NET Core API.

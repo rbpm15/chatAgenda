@@ -6,6 +6,7 @@ using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
 using MessageBox = System.Windows.MessageBox;
+using CefSharp;
 
 namespace EmpresaChat
 {
@@ -18,12 +19,12 @@ namespace EmpresaChat
 
         private System.Windows.Forms.NotifyIcon? _notifyIcon;
         private bool _isExplicitClose = false;
+        private string _lastNotificationSource = "";
 
         public MainWindow()
         {
             InitializeComponent();
 
-            // Posicionar en el lado derecho de la pantalla
             this.WindowStartupLocation = WindowStartupLocation.Manual;
             this.Width  = 420;
             this.Height = 820;
@@ -49,17 +50,18 @@ namespace EmpresaChat
                 _notifyIcon.Text    = "ChatAgenda — Cliente";
                 _notifyIcon.Visible = true;
 
-                _notifyIcon.DoubleClick += (_, _) => RestoreWindow();
+                _notifyIcon.DoubleClick += (_, _) => RestoreWindow(false);
+                _notifyIcon.BalloonTipClicked += (_, _) => RestoreWindow(true);
                 _notifyIcon.Click       += (s, e) =>
                 {
                     if (e is System.Windows.Forms.MouseEventArgs me &&
                         me.Button == System.Windows.Forms.MouseButtons.Left)
-                        RestoreWindow();
+                        RestoreWindow(false);
                 };
 
                 var menu = new System.Windows.Forms.ContextMenuStrip();
-                menu.Items.Add("📱 Abrir ChatAgenda",      null, (_, _) => RestoreWindow());
-                menu.Items.Add("⚙️ Cambiar servidor",      null, (_, _) => Dispatcher.Invoke(ShowSetupOverlay));
+                menu.Items.Add("📱 Abrir ChatAgenda",      null, (_, _) => RestoreWindow(false));
+                menu.Items.Add("⚙️ Configuración",         null, (_, _) => Dispatcher.Invoke(PromptChangeServer));
                 menu.Items.Add("-");
                 menu.Items.Add("❌ Salir",                  null, (_, _) => Dispatcher.Invoke(ExitApplication));
                 _notifyIcon.ContextMenuStrip = menu;
@@ -70,13 +72,22 @@ namespace EmpresaChat
             }
         }
 
-        private void RestoreWindow()
+        private void RestoreWindow(bool fromNotification)
         {
             Dispatcher.Invoke(() =>
             {
                 Show();
                 WindowState = WindowState.Normal;
                 Activate();
+
+                if (fromNotification && _lastNotificationSource == "calendar")
+                {
+                    try
+                    {
+                        WebView.ExecuteScriptAsync("if(typeof window.switchView === 'function') { window.switchView('calendar'); }");
+                    }
+                    catch { }
+                }
             });
         }
 
@@ -87,50 +98,68 @@ namespace EmpresaChat
         }
 
         // ─── Carga inicial ────────────────────────────────────────────
-        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             try
             {
                 StatusText.Text = "Inicializando...";
 
-                await WebView.EnsureCoreWebView2Async(null);
-
-                // Permiso de notificaciones
-                WebView.CoreWebView2.PermissionRequested += (s, args) =>
+                if (CefSharp.Cef.IsInitialized != true)
                 {
-                    if (args.PermissionKind == Microsoft.Web.WebView2.Core.CoreWebView2PermissionKind.Notifications)
-                    {
-                        args.State   = Microsoft.Web.WebView2.Core.CoreWebView2PermissionState.Allow;
-                        args.Handled = true;
-                    }
-                };
-
-                WebView.CoreWebView2.Settings.IsWebMessageEnabled = true;
+                    var settings = new CefSharp.Wpf.CefSettings();
+                    CefSharp.Cef.Initialize(settings);
+                }
 
                 // Mensajes desde JS para notificaciones
-                WebView.CoreWebView2.WebMessageReceived += (s, args) =>
+                WebView.JavascriptMessageReceived += (s, args) =>
                 {
                     try
                     {
+                        var message = args.Message?.ToString();
+                        if (string.IsNullOrEmpty(message)) return;
+
                         var msg = System.Text.Json.JsonSerializer.Deserialize<WebViewMessage>(
-                            args.TryGetWebMessageAsString(),
+                            message,
                             new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
                         if (msg != null && string.Equals(msg.Type, "notification", StringComparison.OrdinalIgnoreCase))
-                            ShowTrayNotification(msg.Title, msg.Body);
+                            ShowTrayNotification(msg.Title, msg.Body, msg.Source);
                     }
                     catch { }
                 };
 
                 // Evento de navegación
-                WebView.CoreWebView2.NavigationCompleted += async (s, args) =>
+                WebView.FrameLoadEnd += (s, args) =>
                 {
-                    if (args.IsSuccess)
+                    if (args.Frame.IsMain)
                     {
-                        _navigationFailureCount = 0;
-                        StatusText.Text = $"Conectado a: {_serverUrl}";
+                        // Inyectar polyfill para que el cdigo JS anterior de WebView2 siga funcionando sin importar la cach
+                        string polyfill = @"
+                            if (typeof window.chrome === 'undefined') { window.chrome = {}; }
+                            if (typeof window.chrome.webview === 'undefined') { window.chrome.webview = {}; }
+                            window.chrome.webview.postMessage = function(msg) {
+                                if (typeof CefSharp !== 'undefined' && CefSharp.PostMessage) {
+                                    var strMsg = typeof msg === 'string' ? msg : JSON.stringify(msg);
+                                    CefSharp.PostMessage(strMsg);
+                                }
+                            };
+                        ";
+                        args.Frame.ExecuteJavaScriptAsync(polyfill);
+
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (args.HttpStatusCode >= 200 && args.HttpStatusCode < 400 || (args.HttpStatusCode == 0 && args.Url != "about:blank"))
+                            {
+                                _navigationFailureCount = 0;
+                                StatusText.Text = "Conectado al servidor";
+                            }
+                        });
                     }
-                    else
+                };
+
+                WebView.LoadError += async (s, args) =>
+                {
+                    await Dispatcher.InvokeAsync(async () =>
                     {
                         _navigationFailureCount++;
                         StatusText.Text = "Reconectando...";
@@ -138,7 +167,7 @@ namespace EmpresaChat
                         if (_navigationFailureCount <= MaxNavigationFailures && !string.IsNullOrEmpty(_serverUrl))
                         {
                             await System.Threading.Tasks.Task.Delay(2000);
-                            try { WebView.CoreWebView2.Navigate(_serverUrl); } catch { }
+                            try { WebView.Address = _serverUrl; } catch { }
                         }
                         else
                         {
@@ -146,7 +175,7 @@ namespace EmpresaChat
                             ShowSetupOverlay();
                             ShowError($"No se pudo conectar a {_serverUrl}\nVerifica que el servidor esté activo.");
                         }
-                    }
+                    });
                 };
 
                 // Cargar configuración guardada
@@ -175,14 +204,11 @@ namespace EmpresaChat
             _serverUrl = url;
             SetupOverlay.Visibility = Visibility.Collapsed;
             WebView.Visibility      = Visibility.Visible;
-            StatusText.Text         = $"Conectando a {url}...";
+            StatusText.Text         = "Conectando al servidor...";
             TxtError.Visibility     = Visibility.Collapsed;
             _navigationFailureCount = 0;
 
-            if (WebView.CoreWebView2 != null)
-                WebView.CoreWebView2.Navigate(url);
-            else
-                WebView.Source = new Uri(url);
+            WebView.Address = url;
         }
 
         private void ShowSetupOverlay()
@@ -219,14 +245,21 @@ namespace EmpresaChat
         }
 
         // ─── Notificaciones ───────────────────────────────────────────
-        private void ShowTrayNotification(string title, string body)
+        private void ShowTrayNotification(string title, string body, string source = "")
         {
             Dispatcher.Invoke(() =>
             {
                 try
                 {
+                    _lastNotificationSource = source;
                     string safeTitle = string.IsNullOrWhiteSpace(title) ? "ChatAgenda" : title;
                     string safeBody  = string.IsNullOrWhiteSpace(body)  ? "Nuevo mensaje" : body;
+
+                    if (string.IsNullOrEmpty(source))
+                    {
+                        if (safeTitle.Contains("📅") || safeTitle.Contains("🔔") || safeTitle.Contains("Evento"))
+                            _lastNotificationSource = "calendar";
+                    }
 
                     if (_notifyIcon != null)
                     {
@@ -256,12 +289,25 @@ namespace EmpresaChat
             ConnectTo(input);
         }
 
+        private void PromptChangeServer()
+        {
+            var result = MessageBox.Show(
+                "¿Estás seguro que deseas cambiar la configuración de red y desconectarte del servidor actual?",
+                "Configuración", 
+                MessageBoxButton.YesNo, 
+                MessageBoxImage.Question);
+
+            if (result == MessageBoxResult.Yes)
+            {
+                WebView.Address = "about:blank";
+                ShowSetupOverlay();
+                StatusText.Text = "Cambiar servidor...";
+            }
+        }
+
         private void BtnChangeMode_Click(object sender, RoutedEventArgs e)
         {
-            if (WebView.CoreWebView2 != null)
-                WebView.CoreWebView2.Navigate("about:blank");
-            ShowSetupOverlay();
-            StatusText.Text = "Cambiar servidor...";
+            PromptChangeServer();
         }
 
         // ─── Cierre ───────────────────────────────────────────────────
@@ -283,11 +329,12 @@ namespace EmpresaChat
         }
 
         // ─── Clases auxiliares ────────────────────────────────────────
-        private class WebViewMessage
+        public class WebViewMessage
         {
             public string Type  { get; set; } = "";
             public string Title { get; set; } = "";
             public string Body  { get; set; } = "";
+            public string Source { get; set; } = "";
         }
     }
 }

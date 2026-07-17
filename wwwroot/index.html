@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/style.css?v=2">
 
     <!-- Microsoft SignalR CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
@@ -19,7 +19,6 @@
     <div class="app-container">
         <!-- 1. APP HEADER BAR (TABS) -->
         <header class="app-header">
-            <div class="header-logo">ChatAgenda</div>
 
             <nav class="header-tabs">
                 <div class="tab-item active" id="navChat">
@@ -259,6 +258,23 @@
                     <button type="submit" class="btn-primary">Guardar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- POPUP MODAL 1.5: DAY EVENTS VIEWER -->
+    <div class="modal-overlay" id="dayEventsModal">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="dayEventsTitle">Eventos del Día</h3>
+                <button class="btn-close" id="dayEventsClose">×</button>
+            </div>
+            <div id="dayEventsList" style="max-height: 300px; overflow-y: auto; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 8px;">
+                <!-- Filled dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" id="btnCancelDayEvents">Cerrar</button>
+                <button type="button" class="btn-primary" id="btnNewEventFromDay">＋ Agregar Evento</button>
+            </div>
         </div>
     </div>
 

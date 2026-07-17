@@ -30,63 +30,15 @@ New-Item -ItemType Directory -Path $OutClient    -Force | Out-Null
 New-Item -ItemType Directory -Path $ZipDir       -Force | Out-Null
 New-Item -ItemType Directory -Path $InstallerDir -Force | Out-Null
 
-# --- 1. Publicar backend ASP.NET ---
-Write-Step "1/4 Publicando servidor ASP.NET (chatAgenda)..."
+# --- 1. Publicar backend ASP.NET (DESACTIVADO A PETICION DEL USUARIO) ---
+# Write-Step "1/4 Publicando servidor ASP.NET (chatAgenda)..."
+# $BackendProj = Join-Path $Root "chatAgenda.csproj"
+# dotnet publish $BackendProj -c $Configuration -r $Runtime --self-contained true -p:PublishSingleFile=true -p:PublishTrimmed=false -o $OutBackend
+# if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Fallo en publicacion del backend" -ForegroundColor Red; exit 1 }
+# Write-Ok "Backend publicado en: $OutBackend"
 
-$BackendProj = Join-Path $Root "chatAgenda.csproj"
-dotnet publish $BackendProj `
-    -c $Configuration -r $Runtime `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:PublishTrimmed=false `
-    -o $OutBackend
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Fallo en publicacion del backend" -ForegroundColor Red
-    exit 1
-}
-Write-Ok "Backend publicado en: $OutBackend"
-
-# --- 2. Publicar WPF Servidor ---
-Write-Step "2/4 Publicando WPF Servidor (Server.WPF)..."
-
-$ServerWpfProj = Join-Path $Root "Server.WPF\Server.WPF.csproj"
-dotnet publish $ServerWpfProj `
-    -c $Configuration -r $Runtime `
-    --self-contained true `
-    -p:PublishSingleFile=false `
-    -p:PublishReadyToRun=true `
-    -o $OutServer
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: Fallo en publicacion del WPF Servidor" -ForegroundColor Red
-    exit 1
-}
-Write-Ok "WPF Servidor publicado en: $OutServer"
-
-# --- 3. Copiar backend al directorio del WPF Servidor ---
-Write-Step "3/4 Copiando chatAgenda.exe al paquete del servidor..."
-
-$BackendExe = Get-ChildItem -Path $OutBackend -Filter "chatAgenda.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
-
-if ($null -ne $BackendExe) {
-    Copy-Item $BackendExe.FullName (Join-Path $OutServer "chatAgenda.exe") -Force
-    Write-Ok "chatAgenda.exe copiado correctamente"
-} else {
-    # Buscar cualquier exe del backend (puede tener otro nombre)
-    $AnyExe = Get-ChildItem -Path $OutBackend -Filter "*.exe" -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -notlike "ChatAgenda*.exe" } |
-              Select-Object -First 1
-    if ($null -ne $AnyExe) {
-        Copy-Item $AnyExe.FullName (Join-Path $OutServer "chatAgenda.exe") -Force
-        Write-Ok "Copiado como chatAgenda.exe: $($AnyExe.Name)"
-    } else {
-        Write-Warn "No encontrado chatAgenda.exe. Copialo manualmente de $OutBackend a $OutServer"
-    }
-}
-
-# --- 4. Publicar WPF Cliente ---
-Write-Step "4/4 Publicando WPF Cliente (Client.WPF)..."
+# --- 2. Publicar WPF Cliente ---
+Write-Step "2/2 Publicando WPF Cliente (Client.WPF)..."
 
 $ClientWpfProj = Join-Path $Root "Client.WPF\Client.WPF.csproj"
 dotnet publish $ClientWpfProj `
@@ -105,16 +57,12 @@ Write-Ok "WPF Cliente publicado en: $OutClient"
 # --- Generar ZIPs ---
 Write-Step "Generando archivos ZIP..."
 
-$ZipServer = Join-Path $ZipDir "ChatAgenda_Servidor.zip"
 $ZipClient = Join-Path $ZipDir "ChatAgenda_Cliente.zip"
 
-if (Test-Path $ZipServer) { Remove-Item $ZipServer -Force }
 if (Test-Path $ZipClient) { Remove-Item $ZipClient -Force }
 
-Compress-Archive -Path "$OutServer\*" -DestinationPath $ZipServer
 Compress-Archive -Path "$OutClient\*" -DestinationPath $ZipClient
 
-Write-Ok "ZIP Servidor: $ZipServer"
 Write-Ok "ZIP Cliente:  $ZipClient"
 
 # --- Inno Setup (opcional) ---
@@ -140,17 +88,6 @@ if ($Iscc) {
     $IssServer = Join-Path $Root "installer\ServerApp.iss"
     $IssClient = Join-Path $Root "installer\ClientApp.iss"
 
-    if (Test-Path $IssServer) {
-        & $Iscc $IssServer /O"$InstallerDir" /DPublishDir="$OutServer"
-        if ($LASTEXITCODE -eq 0) {
-            Write-Ok "Instalador servidor generado en: $InstallerDir"
-        } else {
-            Write-Warn "ISCC fallo para instalador servidor (codigo $LASTEXITCODE)"
-        }
-    } else {
-        Write-Warn "No encontrado: $IssServer"
-    }
-
     if (Test-Path $IssClient) {
         & $Iscc $IssClient /O"$InstallerDir" /DPublishDir="$OutClient"
         if ($LASTEXITCODE -eq 0) {
@@ -171,10 +108,8 @@ Write-Host ""
 Write-Host "=================================================" -ForegroundColor Cyan
 Write-Host "  EMPAQUETADO COMPLETADO" -ForegroundColor Green
 Write-Host "=================================================" -ForegroundColor Cyan
-Write-Host "  Servidor WPF:  $OutServer"
 Write-Host "  Cliente WPF:   $OutClient"
 Write-Host "  ZIPs:          $ZipDir"
 Write-Host ""
-Write-Host "  Distribuir ChatAgenda_Servidor.zip => PC Servidor"
 Write-Host "  Distribuir ChatAgenda_Cliente.zip  => Resto de PCs"
 Write-Host "=================================================" -ForegroundColor Cyan

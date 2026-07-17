@@ -40,6 +40,8 @@ body {
     color: var(--text-primary);
     font-family: 'Outfit', sans-serif;
     height: 100vh;
+    width: 100%;
+    margin: 0;
     overflow: hidden;
     display: flex;
 }
@@ -631,12 +633,13 @@ body {
 .calendar-grid {
     flex-grow: 1;
     display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    grid-template-rows: auto repeat(6, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-rows: auto repeat(6, minmax(0, 1fr));
     border: 1px solid var(--border-color);
     border-radius: 12px;
     overflow: hidden;
     background: var(--bg-main);
+    min-width: 0;
 }
 
 .calendar-weekday {
@@ -649,6 +652,7 @@ body {
     background: var(--bg-surface);
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-color);
+    min-width: 0;
 }
 
 .calendar-day-cell {
@@ -658,7 +662,10 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-    min-height: 80px;
+    min-height: 0;
+    min-width: 0;
+    height: 100%;
+    overflow: hidden;
     background: var(--bg-main);
     cursor: pointer;
     transition: var(--transition-smooth);
@@ -703,10 +710,15 @@ body {
     flex-direction: column;
     gap: 3px;
     overflow-y: auto;
+    overflow-x: hidden;
     flex-grow: 1;
+    min-width: 0;
 }
 
 .calendar-event-pill {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
     font-size: 0.7rem;
     padding: 0.2rem 0.4rem;
     border-radius: 4px;
@@ -714,6 +726,8 @@ body {
     white-space: nowrap;
     text-overflow: ellipsis;
     overflow: hidden;
+    width: 100%;
+    box-sizing: border-box;
     background: rgba(79, 70, 229, 0.08);
     color: var(--primary-color);
     border-left: 2px solid var(--primary-color);
@@ -1031,12 +1045,22 @@ body {
     }
 
     .calendar-grid {
-        grid-template-rows: auto repeat(6, 1fr);
+        grid-template-rows: auto repeat(6, minmax(0, 1fr));
         font-size: 0.75rem;
     }
 
     .calendar-day-cell {
         min-height: 60px;
+    }
+
+    .calendar-weekday {
+        font-size: 0.6rem;
+        padding: 0.4rem 0;
+    }
+    
+    .calendar-event-pill {
+        font-size: 0.6rem;
+        padding: 0.15rem 0.2rem;
     }
 }
 
